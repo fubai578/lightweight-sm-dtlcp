@@ -1,0 +1,9 @@
+# 统一 LF：保证 bash 脚本在 Windows(Git Bash) 与 Linux 克隆后均可直接执行
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.md text eol=lf
+Makefile text eol=lf
+*.ld text eol=lf
