@@ -35,6 +35,8 @@ build_crypto_objs opt  -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2
 build_crypto_objs tiny -DSMC_SM3_KERNEL=3 -DSMC_SM4_KERNEL=3 -DSMC_SM2_KERNEL=2
 build_crypto_objs ct   -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 -DSMC_SM2_CT=1
 build_crypto_objs lite -DSMC_SM3_KERNEL=3 -DSMC_SM4_KERNEL=3 -DSMC_SM2_KERNEL=2 -DSMC_SM2_ENC=0
+build_crypto_objs opc  -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 -DSMC_SM2_OPCOUNT=1
+build_crypto_objs ctc  -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 -DSMC_SM2_CT=1 -DSMC_SM2_OPCOUNT=1
 link_test ref  -DSMC_SM3_KERNEL=1 -DSMC_SM4_KERNEL=1 -DSMC_SM2_KERNEL=1
 link_test opt  -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2
 link_test tiny -DSMC_SM3_KERNEL=3 -DSMC_SM4_KERNEL=3 -DSMC_SM2_KERNEL=2
@@ -54,6 +56,10 @@ if [ -f apps/bench/bench_crypto.c ]; then
   $CC $CFLAGS apps/bench/bench_crypto.c $OBJ/*_ref.o  -o $OUT/bench_ref$EXE $LDFLAGS -lpthread
   $CC $CFLAGS apps/bench/bench_crypto.c $OBJ/*_opt.o  -o $OUT/bench_opt$EXE $LDFLAGS -lpthread
   $CC $CFLAGS apps/bench/bench_crypto.c $OBJ/*_tiny.o -o $OUT/bench_tiny$EXE $LDFLAGS -lpthread
+  if [ -f apps/bench/bench_sct.c ]; then
+    $CC $CFLAGS -DSMC_SM2_OPCOUNT=1 apps/bench/bench_sct.c $OBJ/*_opc.o -o $OUT/bench_sct_opt$EXE $LDFLAGS -lpthread
+    $CC $CFLAGS -DSMC_SM2_OPCOUNT=1 -DSMC_SM2_CT=1 apps/bench/bench_sct.c $OBJ/*_ctc.o -o $OUT/bench_sct_ct$EXE $LDFLAGS -lpthread
+  fi
 else
   echo "[3/4] 基准未就绪，跳过"
 fi

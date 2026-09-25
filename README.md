@@ -10,9 +10,10 @@
 
 | 赛题要求 | 本仓库交付 | 实测结论（数据来源） |
 |---|---|---|
-| ① SM2/SM3/SM4 轻量化裁剪与指令级优化，降低内存占用与运算耗时 | 三算法各提供 **REF（教科书基线）/ OPT（指令级优化）/ TINY·SMALL（最小内存）三内核**，编译期宏切换、同一 API；`smc_config.h` 功能裁剪矩阵 | SM4 T-table 约 **1.9×**、SM2 verify **1.28×** / sign 1.14×（`bin/bench_results.md`）；裁剪后 Flash **20.8K→18.2K**、T-table RAM **4K→0**（`bin/size_report.md`） |
+| ① SM2/SM3/SM4 轻量化裁剪与指令级优化 | 三算法各提供 **REF（教科书基线）/ OPT（指令级优化）/ TINY·SMALL（最小内存）三内核**，编译期宏切换、同一 API；`smc_config.h` 功能裁剪矩阵 | **SM2 verify 1.93× / sign 1.19× / ECDH 1.25×**（wNAF+交织双标量乘）；SM4 **1.35–1.48×**（T-table）；裁剪后 Flash **20.8K→18.2K**、T-table RAM **4K→0**（同一份基准输出的 REF/OPT 比值，见 `bin/bench_results.md`） |
 | ② 基于标准 DTLCP 完成国密改造、替换原生密码套件、UDP 低时延传输 | 记录层（SM4-CTR EtM / SM4-CBC MtE + epoch/序列号防重放）+ 握手精简（FULL / RESUME / PSK）+ HMAC-SM3 密钥调度 + 紧凑 SM2 证书 | FULL **1.5-RTT**（对比 TLCP 标准 3-RTT）、RESUME **1-RTT / 0 次 SM2**、PSK **0-RTT 早期数据**；握手时延 **13.5ms → 1.0ms** |
 | ③ 算法实测（算力/功耗）、可移植嵌入式 C、固件安全改造规范 | 基准/内存/功耗模型三类报告 + 零 libc 依赖嵌入式 C + 9 章固件安全规范 | 5 内核变体测试全绿且**差分指纹逐位一致**；KAT 与 OpenSSL 3.2 交叉验证（`docs/04`） |
+| ✦ 侧信道防护实证（加分项） | `SMC_SM2_CT` 常量时间标量乘 + **执行路径相关性实验**（`apps/bench/bench_sct.c`） | 操作计数（确定性指标）：变时间构建点加次数随 nonce 在 **5–58** 间变化；常量时间构建**恒定为 78**（极差 0）→ 执行路径与秘密无关 |
 
 ---
 
@@ -39,7 +40,12 @@ bash scripts/demo_run.sh     # ③ 演示：UDP 传感终端 ↔ 网关，FULL/R
 bash scripts/benchmark.sh    # ④ 性能：REF vs OPT 对比 + 功耗估算 → bin/bench_results.md
 bash scripts/size_report.sh  # ⑤ 内存：Flash/RAM/栈 + 4 种裁剪配置 → bin/size_report.md
 python scripts/power_model.py  # ⑥ 功耗：能量模型表 + 终端日能耗场景估算
+
+bash scripts/build.sh && ./bin/bench_sct_opt$EXE && ./bin/bench_sct_ct$EXE   # ⑦ 侧信道执行路径实验
 ```
+
+> 也可用 Makefile（Linux/macOS/装有 make 的环境）：`make`（构建+测试）/ `make demo` / `make bench` / `make sct` / `make m4`。
+> 仓库内置 **GitHub Actions CI**（Ubuntu + Windows 双平台：构建 → 全量测试断言 → 差分指纹一致性断言 → 侧信道实验断言 → 报告 artifact）。
 
 **预期结果**：
 
@@ -75,7 +81,8 @@ apps/           应用层（允许 OS/libc 依赖）
   demo/dtlcp_gateway.c       网关（服务端）：接受连接、回执、会话缓存
   demo/udp_io.{h,c}          UDP 传输（WinSock/POSIX 双后端）
   demo/demo_common.h         演示 PKI（确定性密钥）与统计打印
-  bench/bench_crypto.c       微基准：cycles(RDTSC)/µs，输出 markdown 表
+  bench/bench_crypto.c       微基准：cycles(RDTSC)/µs，多轮取最小，输出 markdown 表
+  bench/bench_sct.c          侧信道实验：操作计数（确定性）+ 交错采样时间
 
 tests/
   test_all.c                 算法 KAT + SM2 数学性质 + 往返 + 负向 + 差分指纹（--fp）
@@ -87,6 +94,8 @@ embedded/       嵌入式移植
   cortex-m4/                 Makefile + main.c(KAT+基准) + 启动文件 + 链接脚本
   README.md                  5 步移植指南与内存预算
 
+Makefile        便捷入口（转发到 scripts/*.sh；Windows 无 make 时直接用脚本）
+.github/workflows/ci.yml  GitHub Actions：Ubuntu + Windows 双平台构建与断言测试
 scripts/        构建与测评（无 make，全 bash）
   build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_model.py
 
@@ -110,7 +119,7 @@ bin/ obj/       构建产物（可随时删除后重建）
 |---|---|---|---|
 | SM3 | 教科书消息扩展 | 2 路批量 + 压缩 8 轮展开 | 16 字环形滚动调度，**栈 ~64B** |
 | SM4 | τ 与 L 分步 | T-table 合并 L∘τ（+4KB RAM） | 仅 256B S-box，**RAM 增量 0** |
-| SM2 | 试商长除法约减 + 二进制标量乘 | Solinas 折叠约减 + 4-bit 窗口标量乘（另有 `SMC_SM2_CT=1` 常量时间选项） | 配合 `SMC_SM2_ENC=0` 等裁剪开关 |
+| SM2 | 试商长除法约减 + 二进制标量乘 | **Solinas 折叠约减 + wNAF(w=4) 标量乘 + 验签交织双标量乘**（`SMC_SM2_CT=1` 切换常量时间全表扫描） | 配合 `SMC_SM2_ENC=0` 等裁剪开关 |
 
 功能裁剪（`smc_config.h`，`-D` 覆盖）：`SMC_SM2_ENC`（公钥加密）、`SMC_SM2_SIGN`、`SMC_SM2_ECDH`、
 `SMC_SM4_MODE_CBC/CTR`、`SMC_DRBG`。裁剪组合的 Flash/RAM 差值见 `bin/size_report.md`。
@@ -135,7 +144,9 @@ bin/ obj/       构建产物（可随时删除后重建）
 2. **REF/OPT 差分**：5 个内核变体（ref/opt/tiny/ct/lite）对同一输入集的输出做 SM3 摘要——
    必须逐位一致（当前 `80c111c874afde0179907d7fff4ef92c411a34c505882fa08e0bfff0d9640eb5`）。
 3. **协议端到端**：三模式 UDP 会话 + CBC 标准套件 + 0-RTT 早期数据 + 加密回显（`tests/test_dtlcp.c`）。
-4. **攻击负向**：重放、密文篡改、截断、伪造 MAC、窗口内乱序重复、证书篡改、非法曲线点——全部必须被拒绝。
+4. **攻击负向**：重放、密文篡改、截断、伪造 MAC、窗口内乱序重复、证书篡改、非法曲线点——全部必须被拒绝；
+5. **侧信道执行路径**：确定性操作计数证明变时间构建的加法次数随 nonce 变化（5–58），常量时间构建恒定（78）——CI 中对两个断言自动校验；
+6. **云端复现**：GitHub Actions 在 Ubuntu 与 Windows 两个平台分别构建并跑全量测试，差分指纹种类数断言为 1。
 
 复现：`bash scripts/run_tests.sh`（全绿即通过）。
 

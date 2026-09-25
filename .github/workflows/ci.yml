@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  linux:
+    name: Linux (gcc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建
+        run: bash scripts/build.sh
+
+      - name: 全量测试（KAT + 差分指纹 + 协议端到端 + 攻击负向）
+        run: |
+          bash scripts/run_tests.sh | tee /tmp/test.log
+          # 断言：5 个内核变体 + DTLCP 共 6 行 "失败 0"
+          n=$(grep -c "失败 0" /tmp/test.log)
+          echo "通过项：$n / 6"
+          [ "$n" -eq 6 ]
+          # 断言：5 个变体差分指纹逐位一致
+          fps=$(grep "FINGERPRINT" /tmp/test.log | awk '{print $2}' | sort -u | wc -l)
+          echo "指纹种类：$fps（应为 1）"
+          [ "$fps" -eq 1 ]
+
+      - name: 性能基准
+        run: bash scripts/benchmark.sh
+
+      - name: 侧信道执行路径实验（操作计数）
+        run: |
+          ./bin/bench_sct_opt | tee /tmp/sct0.log
+          ./bin/bench_sct_ct  | tee /tmp/sct1.log
+          # CT=0 应为"随秘密变化"，CT=1 应为"恒定"
+          grep -q "随秘密变化" /tmp/sct0.log
+          grep -q "恒定" /tmp/sct1.log
+
+      - name: 上传报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-linux
+          path: |
+            bin/bench_results.md
+            bin/size_report.md
+
+  windows:
+    name: Windows (MinGW / Git Bash)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+
+      - name: 构建
+        run: bash scripts/build.sh
+
+      - name: 全量测试
+        run: |
+          bash scripts/run_tests.sh | tee /tmp/test.log
+          n=$(grep -c "失败 0" /tmp/test.log)
+          echo "通过项：$n / 6"
+          [ "$n" -eq 6 ]

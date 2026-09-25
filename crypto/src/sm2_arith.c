@@ -10,6 +10,18 @@
 #include <stddef.h>
 #include "sm2_internal.h"
 
+/* ============================ 操作计数钩子（侧信道实验） ============================ */
+/* SMC_SM2_OPCOUNT=1 时统计点运算次数：验证标量乘执行路径是否与秘密相关。
+   CT=0（wNAF/窗口，变时间）操作数随 nonce 变化；CT=1（全表扫描）应恒定。 */
+#if defined(SMC_SM2_OPCOUNT) && SMC_SM2_OPCOUNT
+uint64_t sm2_op_dbl, sm2_op_add;
+#define SMC_OP_DBL() (sm2_op_dbl++)
+#define SMC_OP_ADD() (sm2_op_add++)
+#else
+#define SMC_OP_DBL() ((void)0)
+#define SMC_OP_ADD() ((void)0)
+#endif
+
 /* ============================ 曲线常量 ============================ */
 static const sm2_fe FE_P = {{0xFFFFFFFFu, 0xFFFFFFFFu, 0x00000000u, 0xFFFFFFFFu,
                              0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFEu}};
@@ -426,6 +438,7 @@ void sm2_jac_to_affine(sm2_pt *r, const sm2_jac *p)
 void sm2_jac_double(sm2_jac *r, const sm2_jac *p)
 {
     sm2_fe a2, b2, c2, d, e, f;
+    SMC_OP_DBL();
     if (p->inf || sm2_fe_is_zero(&p->y)) { sm2_jac_set_inf(r); return; }
 
     sm2_fp_sqr(&a2, &p->x);
@@ -468,6 +481,7 @@ void sm2_jac_double(sm2_jac *r, const sm2_jac *p)
 void sm2_jac_add(sm2_jac *r, const sm2_jac *p, const sm2_jac *q)
 {
     sm2_fe z1z1, z2z2, u1, u2, s1, s2, h, i2, j2, rr, v;
+    SMC_OP_ADD();
     if (p->inf) { *r = *q; return; }
     if (q->inf) { *r = *p; return; }
 
@@ -518,6 +532,7 @@ void sm2_jac_add(sm2_jac *r, const sm2_jac *p, const sm2_jac *q)
 void sm2_jac_add_mixed(sm2_jac *r, const sm2_jac *p, const sm2_pt *q)
 {
     sm2_fe z1z1, u2, s2, h, hh, i2, j2, rr, v;
+    SMC_OP_ADD();
     if (p->inf) { sm2_jac_from_affine(r, q); return; }
 
     sm2_fp_sqr(&z1z1, &p->z);
@@ -594,7 +609,7 @@ static int fe_bit(const sm2_fe *k, int i)
 {
     return (int)((k->w[i >> 5] >> (i & 31)) & 1u);
 }
-#else
+#elif SMC_SM2_CT
 static int fe_nibble(const sm2_fe *k, int i)
 {
     return (int)((k->w[i >> 3] >> ((i & 7) * 4)) & 0xFu);
@@ -623,6 +638,161 @@ void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
 
 #elif SMC_SM2_KERNEL == SMC_KERNEL_OPT
 
+#if !SMC_SM2_CT
+/* ================= wNAF(w=4) 标量乘：平均加法密度 1/5 =================
+ * 相比固定 4-bit 窗口（每 4 位 1 次加法 → 每 256 位约 63 次）：
+ *   wNAF 平均每 5 位 1 次加法（约 51 次），且奇数倍表仅 4 点（384B Jacobian）。
+ * 验签用交织双标量乘共享倍点循环，把两次独立 256 次倍点合并为一次。 */
+#define WNAF_NT     4        /* 表：{1,3,5,7}·P */
+#define WNAF_MAXLEN 262
+
+static int w_is_zero9(const uint32_t *t)
+{
+    uint32_t acc = 0;
+    int i;
+    for (i = 0; i < 9; i++) acc |= t[i];
+    return acc == 0;
+}
+
+static void w_add_small(uint32_t *t, uint32_t d)
+{
+    uint64_t c = d;
+    int i;
+    for (i = 0; i < 9; i++) {
+        c += t[i];
+        t[i] = (uint32_t)c;
+        c >>= 32;
+        if (!c) break;
+    }
+}
+
+static void w_sub_small(uint32_t *t, uint32_t d)
+{
+    uint32_t borrow = d;
+    int i;
+    for (i = 0; i < 9 && borrow; i++) {
+        uint32_t old = t[i];
+        t[i] = old - borrow;
+        borrow = (old < borrow) ? 1u : 0u;
+    }
+}
+
+static void w_shr1(uint32_t *t)
+{
+    int i;
+    for (i = 0; i < 8; i++) t[i] = (t[i] >> 1) | (t[i + 1] << 31);
+    t[8] >>= 1;
+}
+
+/* k → wNAF（低位在前），digits ∈ {0, ±1, ±3, ±5, ±7} */
+static int naf_w4(const sm2_fe *k, int8_t naf[WNAF_MAXLEN])
+{
+    uint32_t t[9];
+    int len = 0, i;
+    for (i = 0; i < 8; i++) t[i] = k->w[i];
+    t[8] = 0;
+    for (i = 0; i < WNAF_MAXLEN; i++) naf[i] = 0;   /* 保持零 libc 依赖 */
+    while (!w_is_zero9(t)) {
+        int d = 0;
+        if (t[0] & 1u) {
+            d = (int)(t[0] & 15u);
+            if (d >= 8) d -= 16;                 /* 最近的有符号奇数 */
+            if (d > 0) w_sub_small(t, (uint32_t)d);
+            else       w_add_small(t, (uint32_t)(-d));
+        }
+        naf[len++] = (int8_t)d;
+        w_shr1(t);
+        if (len >= WNAF_MAXLEN) break;           /* 理论不可达，防御 */
+    }
+    return len;
+}
+
+static void jac_negate(sm2_jac *q)
+{
+    sm2_fe t;
+    if (q->inf) return;
+    sm2_fp_sub(&t, &FE_ZERO, &q->y);
+    q->y = t;
+}
+
+/* 奇数倍表 tbl[j] = (2j+1)·P（Jacobian 链，无需求逆） */
+static void build_odd_table(sm2_jac tbl[WNAF_NT], const sm2_pt *p)
+{
+    sm2_jac p2, acc, t;
+    int j;
+    sm2_jac_from_affine(&tbl[0], p);
+    sm2_jac_double(&p2, &tbl[0]);                /* 2P */
+    acc = tbl[0];
+    for (j = 1; j < WNAF_NT; j++) {
+        sm2_jac_add(&t, &acc, &p2);              /* (2j+1)P = (2j-1)P + 2P */
+        acc = t;
+        tbl[j] = acc;
+    }
+}
+
+static void scalarmult_naf(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
+{
+    int8_t naf[WNAF_MAXLEN];
+    sm2_jac tbl[WNAF_NT], acc, t;
+    int len, i;
+
+    len = naf_w4(k, naf);
+    build_odd_table(tbl, p);
+    sm2_jac_set_inf(&acc);
+    for (i = len - 1; i >= 0; i--) {
+        sm2_jac_double(&acc, &acc);
+        if (naf[i]) {
+            sm2_jac q = tbl[(naf[i] > 0 ? (int)naf[i] : -(int)naf[i]) / 2];
+            if (naf[i] < 0) jac_negate(&q);
+            sm2_jac_add(&t, &acc, &q);
+            acc = t;
+        }
+    }
+    *r = acc;
+}
+
+/* k1·P1 + k2·P2（交织共享倍点：验签主路径） */
+static int scalarmult_add_naf(sm2_pt *rout, const sm2_fe *k1, const sm2_pt *p1,
+                              const sm2_fe *k2, const sm2_pt *p2)
+{
+    int8_t n1[WNAF_MAXLEN], n2[WNAF_MAXLEN];
+    sm2_jac t1[WNAF_NT], t2[WNAF_NT], acc, t;
+    int l1, l2, L, i;
+
+    l1 = naf_w4(k1, n1);
+    l2 = naf_w4(k2, n2);
+    L = (l1 > l2) ? l1 : l2;
+    if (L == 0) return -1;
+    build_odd_table(t1, p1);
+    build_odd_table(t2, p2);
+    sm2_jac_set_inf(&acc);
+    for (i = L - 1; i >= 0; i--) {
+        sm2_jac_double(&acc, &acc);
+        if (n1[i]) {
+            sm2_jac q = t1[(n1[i] > 0 ? (int)n1[i] : -(int)n1[i]) / 2];
+            if (n1[i] < 0) jac_negate(&q);
+            sm2_jac_add(&t, &acc, &q);
+            acc = t;
+        }
+        if (n2[i]) {
+            sm2_jac q = t2[(n2[i] > 0 ? (int)n2[i] : -(int)n2[i]) / 2];
+            if (n2[i] < 0) jac_negate(&q);
+            sm2_jac_add(&t, &acc, &q);
+            acc = t;
+        }
+    }
+    if (acc.inf) return -1;
+    sm2_jac_to_affine(rout, &acc);
+    return 0;
+}
+
+void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
+{
+    scalarmult_naf(r, k, p);
+}
+
+#else  /* SMC_SM2_CT：常量时间 4-bit 窗口 + 全表扫描 */
+
 void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
 {
     sm2_jac tbl[15], acc, t;
@@ -637,7 +807,6 @@ void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
         int w = fe_nibble(k, wnd);
         int b;
         for (b = 0; b < 4; b++) sm2_jac_double(&acc, &acc);
-#if SMC_SM2_CT
         {
             /* 常量时间：全表扫描 cmov 选表项（访存模式恒定），再做一次加法 */
             sm2_jac sel;
@@ -654,15 +823,11 @@ void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
             sm2_jac_add(&t, &acc, &sel);   /* sel=inf 时返回 acc */
             acc = t;
         }
-#else
-        if (w) {
-            sm2_jac_add(&t, &acc, &tbl[w - 1]);
-            acc = t;
-        }
-#endif
     }
     *r = acc;
 }
+
+#endif /* SMC_SM2_CT */
 
 #else
 #error "bad SMC_SM2_KERNEL"
@@ -685,6 +850,10 @@ void sm2_scalarmult_base(sm2_pt *r, const sm2_fe *k)
 int sm2_scalarmult_add(sm2_pt *r, const sm2_fe *k1, const sm2_pt *p1,
                        const sm2_fe *k2, const sm2_pt *p2)
 {
+#if SMC_SM2_KERNEL == SMC_KERNEL_OPT && !SMC_SM2_CT
+    /* OPT 内核：交织双标量乘（共享倍点循环） */
+    return scalarmult_add_naf(r, k1, p1, k2, p2);
+#else
     sm2_jac j1, j2, s;
     sm2_scalarmult_jac(&j1, k1, p1);
     sm2_scalarmult_jac(&j2, k2, p2);
@@ -692,4 +861,5 @@ int sm2_scalarmult_add(sm2_pt *r, const sm2_fe *k1, const sm2_pt *p1,
     if (s.inf) return -1;
     sm2_jac_to_affine(r, &s);
     return 0;
+#endif
 }

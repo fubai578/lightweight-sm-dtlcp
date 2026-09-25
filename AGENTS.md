@@ -20,7 +20,7 @@
 | A/B 对比策略 | 每个算法内核提供 REF（教科书基线）与 OPT（指令级优化）两套内核，同一套 API，构建两个二进制对比；差分测试保证二者输出一致 |
 | SM3 内核 | REF（教科书消息扩展）/ FAST（展开压缩函数）/ TINY（滚动 16 字调度，栈占用极小） |
 | SM4 内核 | REF（字节 S-box）/ FAST（T-table 4KB +8 轮展开）/ SMALL（256B S-box 无表展开） |
-| SM2 内核 | 域算术：REF=移位减模约减，OPT=Montgomery CIOS（32 位 limb×8）；标量乘：REF=二进制倍点法，OPT=4bit 固定窗口混合加，另提供常量时间全表扫描选项（SMC_SM2_CT） |
+| SM2 内核 | 域算术：REF=试商长除法约减，OPT=Solinas 折叠约减（8×8 展开乘法）；标量乘：REF=二进制倍点法，OPT=**wNAF(w=4)+验签交织双标量乘**，另提供常量时间全表扫描选项（SMC_SM2_CT，执行路径恒定 78 add/257 dbl，见 bench_sct） |
 | SM2 裁剪 | SIG（默认开）/ ENC（默认关）/ KE 仅保留 ECDH（DTLCP 用），SM2 加密、SM2KEP 可裁剪；config.h 生成裁剪尺寸对比表 |
 | DTLCP 握手模式 | FULL（ECDHE+SM2 签名认证，2 航班 1.5-RTT）、RESUME（会话恢复 1-RTT）、PSK（预共享密钥，可 0-RTT 早期数据） |
 | 记录层保护 | 标准套件 ECDHE_SM4_CBC_SM3（MAC-then-encrypt）与轻量套件 *_SM4_CTR_SM3（Encrypt-then-MAC），均 HMAC-SM3 |
@@ -55,6 +55,8 @@ scripts/    build.sh / run_tests.sh / demo_run.sh / benchmark.sh / size_report.s
       记录长度字段定界、cap/len 上限、CCS 后才接受应用数据(防零密钥注入)、
       verify_peer 强制、链式 transcript、套件降级拒绝、熵源接口
 - [x] 最终状态：算法 5 变体 + DTLCP 36 项测试全绿，demo 三场景可用
+- [x] 竞争力优化轮：wNAF+交织双标量乘（verify 1.93×/sign 1.19×）、侧信道执行路径实验（CT 恒定 78/257）、
+      Makefile + GitHub Actions CI（双平台断言）、跨平台脚本修复（$EXE 探测）、基准稳健化（5 轮取最小）
 
 ## 五、关键调试经验（后续修改代码必读）
 
@@ -70,3 +72,5 @@ scripts/    build.sh / run_tests.sh / demo_run.sh / benchmark.sh / size_report.s
 10. **derive_iv**：HMAC-SM3 输出 32 字节，IV 缓冲必须 32 字节接收后截断 16
 11. **多数据报状态**：CCS 之类一次性标志必须跨数据报保持（放 for(;;) 外层）
 12. **transcript 链式**：双方各自的 Finished 都要 absorb（发送后/校验后），保持对称
+13. **wNAF**：signed digit 需保证中间值非负才能逻辑右移；表用 Jacobian 链建（免求逆）比批量求逆更省
+14. **基准口径**：RDTSC 受 CPU 频率影响，跨运行绝对值不可比——用同一份输出的 REF/OPT 比值；每项 5 轮取最小
