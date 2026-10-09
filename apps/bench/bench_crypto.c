@@ -13,6 +13,7 @@
 #include "smc/sm4.h"
 #include "smc/sm2.h"
 #include "smc/hmac_sm3.h"
+#include "sm2_internal.h"   /* 仅"域算术"单列行使用：sm2_fp_mul/sqr/inv 不在公共 API 面上 */
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
 static uint64_t rdtsc(void)
@@ -82,6 +83,10 @@ int main(void)
 #else
     printf("### 内核变体：OPT（指令级优化）\n");
 #endif
+    printf("> SM2 基点 comb 预计算表：%s",
+           SMC_SM2_FIXED_TABLE ? "启用（sign/keygen 的 k·G，表 2KB 只读）" : "关闭（k·G 走 wNAF）");
+    if (SMC_SM2_CT) printf("；常量时间标量乘：启用");
+    printf("\n");
     printf("> 每项 %d 轮取最小值；同一 host 连续测量，横向对比以同一次输出为准\n", BENCH_ROUNDS);
 
     printf("\n#### SM3 哈希\n| operation | iters | cycles/op | us/op | ops/s |\n|---|---|---|---|---|\n");
@@ -153,6 +158,26 @@ int main(void)
 
         MEASURE(sm2_ecdh(shared, d1, p2), iters_slow, c0, n0);
         row("ecdh", iters_slow, c0, n0);
+    }
+#endif
+
+#if SMC_SM2_SIGN || SMC_SM2_ECDH
+    /* 域算术单列：用于定位标量乘差异来自"标量乘算法"还是"域运算本身"。
+       与第三方基线（GmSSL）同名对照，见 scripts/thirdparty_bench.sh。
+       此处包含内部头文件（同 bench_sct.c 的做法），因为域运算不在公共 API 面上。 */
+    printf("\n#### 域算术 Fp（根因定位用，非公共 API）\n| operation | iters | cycles/op | us/op | ops/s |\n|---|---|---|---|---|\n");
+    {
+        sm2_fe fa, fb, fr;
+        uint8_t tb[32];
+        int iters = 20000;
+        prand(tb, 32); sm2_fe_from_bytes(&fa, tb); sm2_fp_reduce(&fa);
+        prand(tb, 32); sm2_fe_from_bytes(&fb, tb); sm2_fp_reduce(&fb);
+        MEASURE(sm2_fp_mul(&fr, &fa, &fb), iters, c0, n0);
+        row("fe_mul", iters, c0, n0);
+        MEASURE(sm2_fp_sqr(&fr, &fa), iters, c0, n0);
+        row("fe_sqr", iters, c0, n0);
+        MEASURE(sm2_fp_inv(&fr, &fa), 2000, c0, n0);
+        row("fe_inv", 2000, c0, n0);
     }
 #endif
     return 0;

@@ -10,6 +10,7 @@
 #   make demo       FULL / RESUME / PSK 三模式 UDP 演示
 #   make bench      性能基准 + 功耗模型 → bin/bench_results.md
 #   make size       Flash/RAM/栈 + 裁剪矩阵 → bin/size_report.md
+#   make thirdparty 第三方基线对照（下载 GmSSL，交错测量 → bin/thirdparty_compare.md）
 #   make sct        侧信道执行路径相关性实验（CT=0/1 对比）
 #   make m4         Cortex-M4 交叉编译（需 arm-none-eabi-gcc）
 #   make clean      清理产物
@@ -17,7 +18,7 @@
 SHELL := /bin/bash
 CROSS ?= arm-none-eabi-
 
-.PHONY: all build test demo bench size sct power m4 clean help
+.PHONY: all build test demo bench size sct power thirdparty m4 clean help
 
 all: test
 
@@ -41,6 +42,9 @@ size:
 
 power:
 	python3 scripts/power_model.py
+
+thirdparty:
+	bash scripts/thirdparty_bench.sh
 
 sct: build
 	@echo "======== SMC_SM2_CT=0（变时间）========"
