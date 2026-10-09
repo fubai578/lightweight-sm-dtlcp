@@ -11,6 +11,7 @@
  *   SMC_SM3_KERNEL       1=REF 2=FAST(默认) 3=TINY(最小栈)
  *   SMC_SM4_KERNEL       1=REF 2=FAST(默认) 3=SMALL(最小常量表)
  *   SMC_SM2_KERNEL       1=REF 2=OPT(默认)   SMC_SM2_CT=1 常量时间标量乘
+ *   SMC_SM2_FIXED_TABLE  1=启用基点 comb 预计算表（OPT 且非 CT 时默认 1；省 Flash 可置 0）
  */
 #ifndef SMC_CONFIG_H
 #define SMC_CONFIG_H
@@ -58,6 +59,19 @@
 /* SM2 标量乘常量时间变体（抗时序/SPA，性能约 2x 代价） */
 #ifndef SMC_SM2_CT
 #define SMC_SM2_CT 0
+#endif
+
+/* SM2 基点 comb 预计算表（k·G 专用）：
+ *   仅 OPT 且非 CT 内核生效——CT 路径必须保持恒定访存的常量时间性质，不得引入查表。
+ *   收益：sign/keygen 的基点乘由约 257 次倍点降为 51 次（见 docs/04 §A）。
+ *   代价：只读常量表 2KB（计入 Flash/text，静态 RAM 增量 0）。
+ *   表由 scripts/gen_fixed_base.sh 生成 + 校验；置 0 可省 2KB Flash。 */
+#ifndef SMC_SM2_FIXED_TABLE
+#if SMC_SM2_KERNEL == SMC_KERNEL_OPT && !SMC_SM2_CT
+#define SMC_SM2_FIXED_TABLE 1
+#else
+#define SMC_SM2_FIXED_TABLE 0
+#endif
 #endif
 
 /* ---- 尺寸常量 ---- */

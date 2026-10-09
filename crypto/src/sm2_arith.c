@@ -23,6 +23,10 @@ uint64_t sm2_op_dbl, sm2_op_add;
 #endif
 
 /* ============================ 曲线常量 ============================ */
+/* 基点乘是否走 comb 固定表：OPT 内核 + 非 CT + 表启用（声明与使用处共用此判据） */
+#define SMC_SM2_USE_COMB_TABLE \
+    (SMC_SM2_KERNEL == SMC_KERNEL_OPT && !SMC_SM2_CT && SMC_SM2_FIXED_TABLE)
+
 static const sm2_fe FE_P = {{0xFFFFFFFFu, 0xFFFFFFFFu, 0x00000000u, 0xFFFFFFFFu,
                              0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFEu}};
 static const sm2_fe FE_A = {{0xFFFFFFFCu, 0xFFFFFFFFu, 0x00000000u, 0xFFFFFFFFu,
@@ -37,10 +41,13 @@ static const sm2_fe FE_NM2 = {{0x39D54121u, 0x53BBF409u, 0x21C6052Bu, 0x7203DF6B
                                0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFEu}};
 static const sm2_fe FE_ONE = {{1, 0, 0, 0, 0, 0, 0, 0}};
 static const sm2_fe FE_ZERO = {{0, 0, 0, 0, 0, 0, 0, 0}};
+#if !SMC_SM2_USE_COMB_TABLE
+/* 启用 comb 表时基点只从表中取，这两个常量不再被引用 */
 static const sm2_fe FE_GX = {{0x334C74C7u, 0x715A4589u, 0xF2660BE1u, 0x8FE30BBFu,
                               0x6A39C994u, 0x5F990446u, 0x1F198119u, 0x32C4AE2Cu}};
 static const sm2_fe FE_GY = {{0x2139F0A0u, 0x02DF32E5u, 0xC62A4740u, 0xD0A9877Cu,
                               0x6B692153u, 0x59BDCEE3u, 0xF4F6779Cu, 0xBC3736A2u}};
+#endif
 
 const uint8_t SM2_PARAM_P[32] = {
     0xFF,0xFF,0xFF,0xFE, 0xFF,0xFF,0xFF,0xFF, 0xFF,0xFF,0xFF,0xFF, 0xFF,0xFF,0xFF,0xFF,
@@ -786,6 +793,47 @@ static int scalarmult_add_naf(sm2_pt *rout, const sm2_fe *k1, const sm2_pt *p1,
     return 0;
 }
 
+/* ---- 基点 comb 固定表（k·G 专用；表见 crypto/src/sm2_base_table.h） ----
+ * k·G = Σ_{j=0}^{d-1} 2^j·T[K_j]：d−1 次倍点 + ≤d−1 次混合加。
+ * 相比 wNAF（257 次倍点）把倍点次数降到 51，是 sign/keygen 的主收益来源。
+ * 表为只读常量，不占 RAM；因依赖秘密索引访存，仅在非 CT 内核启用（smc_config.h）。 */
+#if SMC_SM2_USE_COMB_TABLE
+#include "sm2_base_table.h"
+
+/* 第 j 个平衡量 K_j（标量第 j+i·d 位组成的 t 位窗口） */
+static unsigned comb_idx(const sm2_fe *k, int j)
+{
+    unsigned a = 0;
+    int i;
+    for (i = 0; i < SMC_SM2_TBITS; i++) {
+        int b = j + i * SMC_SM2_DBLK;
+        if (b < 256) a |= (unsigned)((k->w[b >> 5] >> (b & 31)) & 1u) << i;
+    }
+    return a;
+}
+
+static void scalarmult_base_comb(sm2_jac *r, const sm2_fe *k)
+{
+    sm2_jac acc, t;
+    unsigned a;
+    int j;
+
+    a = comb_idx(k, SMC_SM2_DBLK - 1);
+    if (a == 0) sm2_jac_set_inf(&acc);          /* K_j = 0：该项不贡献 */
+    else        sm2_jac_from_affine(&acc, &SM2_COMB_TABLE[a]);
+
+    for (j = SMC_SM2_DBLK - 2; j >= 0; j--) {
+        sm2_jac_double(&t, &acc);
+        acc = t;
+        a = comb_idx(k, j);
+        if (a == 0) continue;                   /* 占位项 [0] 不读取 */
+        sm2_jac_add_mixed(&t, &acc, &SM2_COMB_TABLE[a]);
+        acc = t;
+    }
+    *r = acc;
+}
+#endif /* SMC_SM2_USE_COMB_TABLE */
+
 void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
 {
     scalarmult_naf(r, k, p);
@@ -842,9 +890,16 @@ void sm2_scalarmult(sm2_pt *r, const sm2_fe *k, const sm2_pt *p)
 
 void sm2_scalarmult_base(sm2_pt *r, const sm2_fe *k)
 {
+#if SMC_SM2_USE_COMB_TABLE
+    /* OPT：基点 comb 固定表（仅 k·G 适用；通用标量乘仍走 wNAF） */
+    sm2_jac j;
+    scalarmult_base_comb(&j, k);
+    sm2_jac_to_affine(r, &j);
+#else
     sm2_pt g;
     g.x = FE_GX; g.y = FE_GY;
     sm2_scalarmult(r, k, &g);
+#endif
 }
 
 int sm2_scalarmult_add(sm2_pt *r, const sm2_fe *k1, const sm2_pt *p1,

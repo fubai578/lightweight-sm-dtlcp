@@ -37,12 +37,16 @@ build_crypto_objs ct   -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 
 build_crypto_objs lite -DSMC_SM3_KERNEL=3 -DSMC_SM4_KERNEL=3 -DSMC_SM2_KERNEL=2 -DSMC_SM2_ENC=0
 build_crypto_objs opc  -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 -DSMC_SM2_OPCOUNT=1
 build_crypto_objs ctc  -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 -DSMC_SM2_CT=1 -DSMC_SM2_OPCOUNT=1
+# notab：关闭基点 comb 预计算表——用于「comb 收益 / 2KB Flash 代价」的同轮 A/B 对照，
+#        同时把这一裁剪开关也纳入差分指纹验证
+build_crypto_objs notab -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 -DSMC_SM2_FIXED_TABLE=0
 link_test ref  -DSMC_SM3_KERNEL=1 -DSMC_SM4_KERNEL=1 -DSMC_SM2_KERNEL=1
 link_test opt  -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2
 link_test tiny -DSMC_SM3_KERNEL=3 -DSMC_SM4_KERNEL=3 -DSMC_SM2_KERNEL=2
 link_test ct   -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 -DSMC_SM2_CT=1
 link_test lite -DSMC_SM3_KERNEL=3 -DSMC_SM4_KERNEL=3 -DSMC_SM2_KERNEL=2 -DSMC_SM2_ENC=0
-echo "      -> $OUT/test_{ref,opt,tiny,ct,lite}"
+link_test notab -DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 -DSMC_SM2_FIXED_TABLE=0
+echo "      -> $OUT/test_{ref,opt,tiny,ct,lite,notab}"
 
 if [ -f tests/test_dtlcp.c ]; then
   echo "[2/4] 构建 DTLCP 协议测试 ..."
@@ -56,6 +60,8 @@ if [ -f apps/bench/bench_crypto.c ]; then
   $CC $CFLAGS apps/bench/bench_crypto.c $OBJ/*_ref.o  -o $OUT/bench_ref$EXE $LDFLAGS -lpthread
   $CC $CFLAGS apps/bench/bench_crypto.c $OBJ/*_opt.o  -o $OUT/bench_opt$EXE $LDFLAGS -lpthread
   $CC $CFLAGS apps/bench/bench_crypto.c $OBJ/*_tiny.o -o $OUT/bench_tiny$EXE $LDFLAGS -lpthread
+  # notab：与 opt 同内核、仅关闭基点 comb 表 → comb 净收益的同轮 A/B
+  $CC $CFLAGS apps/bench/bench_crypto.c $OBJ/*_notab.o -o $OUT/bench_notab$EXE $LDFLAGS -lpthread
   if [ -f apps/bench/bench_sct.c ]; then
     $CC $CFLAGS -DSMC_SM2_OPCOUNT=1 apps/bench/bench_sct.c $OBJ/*_opc.o -o $OUT/bench_sct_opt$EXE $LDFLAGS -lpthread
     $CC $CFLAGS -DSMC_SM2_OPCOUNT=1 -DSMC_SM2_CT=1 apps/bench/bench_sct.c $OBJ/*_ctc.o -o $OUT/bench_sct_ct$EXE $LDFLAGS -lpthread
