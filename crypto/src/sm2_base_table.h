@@ -14,9 +14,12 @@
 #ifndef SMC_SM2_BASE_TABLE_H
 #define SMC_SM2_BASE_TABLE_H
 
-#define SMC_SM2_TBITS 5
-#define SMC_SM2_DBLK  52
-#define SMC_SM2_TENT  32u
+#include "smc/smc_config.h"
+
+/* 表参数以 smc_config.h 为唯一来源；本处只做一致性校验，避免代码与表错配 */
+#if SMC_SM2_TBITS != 5 || SMC_SM2_TENT != 32u || SMC_SM2_DBLK != 52
+#error "基点表参数与 smc_config.h 不一致：请同步 GEN_TBITS 或重新生成表"
+#endif
 
 static const sm2_pt SM2_COMB_TABLE[SMC_SM2_TENT] = {
     /* [ 0] 占位（不读取） */

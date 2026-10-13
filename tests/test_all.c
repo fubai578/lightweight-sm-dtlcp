@@ -269,12 +269,17 @@ static void test_sm2(void)
         ok(rejects, "sm2 篡改/非法参数全拒绝");
     }
 
-    /* ECDH 一致性 */
+    /* ECDH 一致性（双方密钥必须不同！）
+       注意 sm2_keygen(d, pub, NULL) 用固定 DRBG 种子，**每次返回同一密钥对**，
+       故两方密钥不能用两次 keygen 生成——否则等于拿同一个密钥自比，
+       虽然仍会走通代码路径，但没有验证到"两个不同参与方"这一关键性质。 */
     {
         sm2_keygen(d1, p1, NULL);
-        sm2_keygen(d2, p2, NULL);
+        trand(d2, 32);                       /* 独立的随机私钥 → 真正不同的第二方 */
+        ok(sm2_pub_from_priv(p2, d2) == 0, "生成第二个（独立的）密钥对");
+        ok(memcmp(p1, p2, 65) != 0, "两个公钥确实不同（避免自比）");
         ok(sm2_ecdh(shared1, d1, p2) == 0 && sm2_ecdh(shared2, d2, p1) == 0 &&
-           memcmp(shared1, shared2, 32) == 0, "sm2 ECDH 双方共享一致");
+           memcmp(shared1, shared2, 32) == 0, "sm2 ECDH 双方共享一致（不同密钥对）");
     }
 
 #if SMC_SM2_ENC
@@ -289,6 +294,77 @@ static void test_sm2(void)
         ok(pass, "sm2 加密/解密往返");
         c[70] ^= 0x01;   /* 篡改 C3 */
         ok(sm2_decrypt(out, &olen, c, clen, d1) != 0, "sm2 密文篡改被拒绝");
+    }
+#endif
+
+#if SMC_SM2_PEER_TABLE
+    /* ---- 对端公钥预计算表（验签的变基点腿 → 固定基点）---- */
+    {
+        static uint32_t ptbl[SMC_SM2_PEER_TABLE_BYTES / 4];
+        static uint32_t ptbl3[SMC_SM2_PEER_TABLE_BYTES / 4];
+        uint8_t d3[32], p3[65], sig2[64], sig3[64];
+        int i;
+
+        sm2_keygen(d1, p1, NULL);
+        trand(dgst, 32);
+        (void)sm2_sign(sig2, dgst, d1, NULL);
+
+        ok(sm2_peer_table_build(ptbl, p1) == 0, "对端表构建成功");
+        ok(sm2_verify(sig2, dgst, p1) == 0, "对端表场景：sig 可被 sm2_verify 接受");
+        ok(sm2_verify_with_table(sig2, dgst, ptbl) == 0,
+           "对端表验签接受同一 sig（与 sm2_verify 差分一致）");
+
+        /* 紧凑化：构建后只需保留前 SMC_SM2_PEER_TABLE_ACTIVE_BYTES 字节即可复用
+           （网关按设备公钥缓存时把每对端成本从 4 KB 减到 2 KB）。
+           注意此时 sig2/dgst 必须仍然匹配——测试顺序会影响结论，不可随意挪动。 */
+        {
+            static uint8_t compact[SMC_SM2_PEER_TABLE_ACTIVE_BYTES];
+            memcpy(compact, ptbl, sizeof compact);
+            ok(sm2_verify_with_table(sig2, dgst, compact) == 0,
+               "紧凑表（2 KB）验签与完整表结果一致");
+        }
+
+        /* 篡改与错摘要必须同样被拒绝 */
+        sig2[10] ^= 0x01;
+        ok(sm2_verify(sig2, dgst, p1) != 0, "对端表场景：篡改 sig 被 sm2_verify 拒绝");
+        ok(sm2_verify_with_table(sig2, dgst, ptbl) != 0, "对端表验签拒绝篡改 sig");
+        sig2[10] ^= 0x01;
+        dgst[0] ^= 0x01;
+        ok(sm2_verify_with_table(sig2, dgst, ptbl) != 0, "对端表验签拒绝错误摘要");
+        dgst[0] ^= 0x01;
+
+        /* 表与公钥绑定：用别的公钥的表必须 fail-closed（拒绝，而非误判通过）。
+           同样不能用第二次 keygen 造"第二把钥匙"——那会得到与 p1 相同的公钥，
+           于是"错表"其实是对表，测试会失去意义。 */
+        trand(d3, 32);
+        ok(sm2_pub_from_priv(p3, d3) == 0, "生成第三把（独立的）密钥");
+        ok(memcmp(p1, p3, 65) != 0, "第三把钥匙的第一把不同（错表测试才有意义）");
+        trand(dgst, 32);
+        (void)sm2_sign(sig3, dgst, d3, NULL);
+        ok(sm2_peer_table_build(ptbl3, p3) == 0, "对端表构建成功（第二把钥匙）");
+        ok(sm2_verify_with_table(sig3, dgst, ptbl3) == 0, "第二把钥匙自验通过");
+        ok(sm2_verify_with_table(sig3, dgst, ptbl) != 0,
+           "表与公钥不匹配时验签失败（fail-closed；sig3 与 dgst 匹配，仅表错）");
+
+        /* 非法输入必须拒绝 */
+        trand(p3, 65);
+        p3[0] = 0x04;
+        ok(sm2_peer_table_build(ptbl, p3) != 0, "对端表构建拒绝非法曲线点");
+        ok(sm2_verify_with_table(sig2, dgst, NULL) != 0, "对端表验签拒绝空表指针");
+
+        /* 表内点必须在曲线上（构建正确性的直接检查） */
+        {
+            const sm2_fe *t = (const sm2_fe *)ptbl;
+            int all_ok = 1;
+            for (i = 1; i < (int)SMC_SM2_TENT; i++) {
+                sm2_pt q;
+                q.x = t[2 * i];
+                q.y = t[2 * i + 1];
+                if (!sm2_pt_on_curve(&q)) all_ok = 0;
+            }
+            ok(all_ok, "对端表全部表项在曲线上");
+        }
+
     }
 #endif
 }

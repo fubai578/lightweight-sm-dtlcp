@@ -23,9 +23,24 @@ uint64_t sm2_op_dbl, sm2_op_add;
 #endif
 
 /* ============================ 曲线常量 ============================ */
-/* 基点乘是否走 comb 固定表：OPT 内核 + 非 CT + 表启用（声明与使用处共用此判据） */
+/* 是否使用基点 comb 预计算表（OPT 内核；CT 与非 CT 都可用，选表方式不同） */
 #define SMC_SM2_USE_COMB_TABLE \
-    (SMC_SM2_KERNEL == SMC_KERNEL_OPT && !SMC_SM2_CT && SMC_SM2_FIXED_TABLE)
+    (SMC_SM2_KERNEL == SMC_KERNEL_OPT && SMC_SM2_FIXED_TABLE)
+
+/* 第 j 个平衡量 K_j（标量第 j+i·d 位组成的 t 位窗口）。
+ * 放在文件级：comb 基点乘与对端公钥表两处都要用，且各自由独立开关控制 */
+#if SMC_SM2_KERNEL == SMC_KERNEL_OPT
+static unsigned comb_idx(const sm2_fe *k, int j)
+{
+    unsigned a = 0;
+    int i;
+    for (i = 0; i < SMC_SM2_TBITS; i++) {
+        int b = j + i * SMC_SM2_DBLK;
+        if (b < 256) a |= (unsigned)((k->w[b >> 5] >> (b & 31)) & 1u) << i;
+    }
+    return a;
+}
+#endif
 
 static const sm2_fe FE_P = {{0xFFFFFFFFu, 0xFFFFFFFFu, 0x00000000u, 0xFFFFFFFFu,
                              0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFEu}};
@@ -793,47 +808,6 @@ static int scalarmult_add_naf(sm2_pt *rout, const sm2_fe *k1, const sm2_pt *p1,
     return 0;
 }
 
-/* ---- 基点 comb 固定表（k·G 专用；表见 crypto/src/sm2_base_table.h） ----
- * k·G = Σ_{j=0}^{d-1} 2^j·T[K_j]：d−1 次倍点 + ≤d−1 次混合加。
- * 相比 wNAF（257 次倍点）把倍点次数降到 51，是 sign/keygen 的主收益来源。
- * 表为只读常量，不占 RAM；因依赖秘密索引访存，仅在非 CT 内核启用（smc_config.h）。 */
-#if SMC_SM2_USE_COMB_TABLE
-#include "sm2_base_table.h"
-
-/* 第 j 个平衡量 K_j（标量第 j+i·d 位组成的 t 位窗口） */
-static unsigned comb_idx(const sm2_fe *k, int j)
-{
-    unsigned a = 0;
-    int i;
-    for (i = 0; i < SMC_SM2_TBITS; i++) {
-        int b = j + i * SMC_SM2_DBLK;
-        if (b < 256) a |= (unsigned)((k->w[b >> 5] >> (b & 31)) & 1u) << i;
-    }
-    return a;
-}
-
-static void scalarmult_base_comb(sm2_jac *r, const sm2_fe *k)
-{
-    sm2_jac acc, t;
-    unsigned a;
-    int j;
-
-    a = comb_idx(k, SMC_SM2_DBLK - 1);
-    if (a == 0) sm2_jac_set_inf(&acc);          /* K_j = 0：该项不贡献 */
-    else        sm2_jac_from_affine(&acc, &SM2_COMB_TABLE[a]);
-
-    for (j = SMC_SM2_DBLK - 2; j >= 0; j--) {
-        sm2_jac_double(&t, &acc);
-        acc = t;
-        a = comb_idx(k, j);
-        if (a == 0) continue;                   /* 占位项 [0] 不读取 */
-        sm2_jac_add_mixed(&t, &acc, &SM2_COMB_TABLE[a]);
-        acc = t;
-    }
-    *r = acc;
-}
-#endif /* SMC_SM2_USE_COMB_TABLE */
-
 void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
 {
     scalarmult_naf(r, k, p);
@@ -877,9 +851,117 @@ void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
 
 #endif /* SMC_SM2_CT */
 
+/* ================= 基点 comb 固定表（k·G 专用） =================
+ * 表见 crypto/src/sm2_base_table.h（自动生成、只读常量、禁止手工编辑）。
+ * k·G = Σ_{j=0}^{d-1} 2^j·T[K_j]：d−1 次倍点 + ≤d−1 次混合加（原 wNAF 约 257 次倍点）。
+ * 两种选表方式（SMC_SM2_CT 决定编译哪一支）：
+ *   非 CT：以 K_j 直接索引 T[K_j]（最快；属"秘密相关访存"，与 wNAF 同类别）
+ *   CT   ：对全部 32 项做**扫描 + cmov**，且恒做一次加法后再用掩码决定是否采纳结果
+ *          —— 访存模式与运算次数均与秘密无关，使 K_j=0 也不产生分支
+ * 关键观察：扫描的代价是每窗口 32 项 × 2 域的 cmov（廉价字操作），
+ *   远低于它省下的 206 次倍点 ⇒ **"用预计算表"与"常量时间"并不冲突**，
+ *   实测 CT 的性能代价接近 0（见 docs/04 §3.6）。 */
+#if SMC_SM2_USE_COMB_TABLE
+#include "sm2_base_table.h"
+
+#if !SMC_SM2_CT
+/* ---- 非 CT：直接索引 32 项表 ---- */
+static void scalarmult_base_comb(sm2_jac *r, const sm2_fe *k)
+{
+    sm2_jac acc, t;
+    unsigned a;
+    int j;
+
+    a = comb_idx(k, SMC_SM2_DBLK - 1);
+    if (a == 0) sm2_jac_set_inf(&acc);          /* K_j = 0：该项不贡献 */
+    else        sm2_jac_from_affine(&acc, &SM2_COMB_TABLE[a]);
+
+    for (j = SMC_SM2_DBLK - 2; j >= 0; j--) {
+        sm2_jac_double(&t, &acc);
+        acc = t;
+        a = comb_idx(k, j);
+        if (a == 0) continue;                   /* 占位项 [0] 不读取 */
+        sm2_jac_add_mixed(&t, &acc, &SM2_COMB_TABLE[a]);
+        acc = t;
+    }
+    *r = acc;
+}
+
+#else /* SMC_SM2_CT */
+/* ---- CT：全表扫描 + cmov（访存模式与运算次数恒定）---- */
+
+/* 掩码搬运：m 全 1 时 dst = src（含 inf 标志） */
+static void jac_cmov(sm2_jac *dst, const sm2_jac *src, uint32_t m)
+{
+    cmov_fe(&dst->x, &src->x, m);
+    cmov_fe(&dst->y, &src->y, m);
+    cmov_fe(&dst->z, &src->z, m);
+    dst->inf = (int)(((uint32_t)dst->inf & ~m) | ((uint32_t)src->inf & m));
+}
+
+/* 全表扫描选出 T[K_j] 的仿射坐标，返回 nz = (K_j != 0)。
+ * 地址序列与 K_j 无关：恒读 T[0..31]，且不做提前退出。 */
+static uint32_t comb_scan_ct(sm2_pt *q, const sm2_fe *k, int j)
+{
+    unsigned a = comb_idx(k, j);
+    uint32_t nz = (a | (0u - a)) >> 31;         /* a != 0 → 1 */
+    sm2_pt sel;
+    int i;
+    sm2_fe_set_one(&sel.x);
+    sm2_fe_set_one(&sel.y);
+    for (i = 0; i < (int)SMC_SM2_TENT; i++) {
+        uint32_t m = (uint32_t)0 - (uint32_t)((unsigned)i == a);
+        cmov_fe(&sel.x, &SM2_COMB_TABLE[i].x, m);
+        cmov_fe(&sel.y, &SM2_COMB_TABLE[i].y, m);
+    }
+    *q = sel;
+    return nz;
+}
+
+static void scalarmult_base_comb_ct(sm2_jac *r, const sm2_fe *k)
+{
+    sm2_jac acc, t;
+    sm2_pt q;
+    uint32_t nz;
+    int j;
+
+    /* 首项：acc = T[K_(d-1)]；K=0 时用掩码置无穷远（不分支） */
+    nz = comb_scan_ct(&q, k, SMC_SM2_DBLK - 1);
+    sm2_jac_from_affine(&acc, &q);
+    acc.inf = (int)(1u - nz);
+
+    for (j = SMC_SM2_DBLK - 2; j >= 0; j--) {
+        sm2_jac_double(&t, &acc);
+        acc = t;
+        nz = comb_scan_ct(&q, k, j);
+        sm2_jac_add_mixed(&t, &acc, &q);        /* 恒做一次加法 */
+        jac_cmov(&acc, &t, (uint32_t)0 - nz);   /* K_j=0 时丢弃加法结果 */
+    }
+    *r = acc;
+}
+#endif /* SMC_SM2_CT */
+#endif /* SMC_SM2_USE_COMB_TABLE */
+
 #else
 #error "bad SMC_SM2_KERNEL"
 #endif
+
+/* 基点乘（Jacobian 输出，不做求逆）：供需要把结果再相加的路径复用（如验签 sG+tP）。
+ * 放在内核分支之外——REF 内核同样需要该入口（走通用标量乘） */
+void sm2_scalarmult_base_jac(sm2_jac *r, const sm2_fe *k)
+{
+#if SMC_SM2_USE_COMB_TABLE
+#if !SMC_SM2_CT
+    scalarmult_base_comb(r, k);
+#else
+    scalarmult_base_comb_ct(r, k);
+#endif
+#else
+    sm2_pt g;
+    g.x = FE_GX; g.y = FE_GY;
+    sm2_scalarmult_jac(r, k, &g);
+#endif
+}
 
 void sm2_scalarmult(sm2_pt *r, const sm2_fe *k, const sm2_pt *p)
 {
@@ -890,16 +972,9 @@ void sm2_scalarmult(sm2_pt *r, const sm2_fe *k, const sm2_pt *p)
 
 void sm2_scalarmult_base(sm2_pt *r, const sm2_fe *k)
 {
-#if SMC_SM2_USE_COMB_TABLE
-    /* OPT：基点 comb 固定表（仅 k·G 适用；通用标量乘仍走 wNAF） */
     sm2_jac j;
-    scalarmult_base_comb(&j, k);
+    sm2_scalarmult_base_jac(&j, k);
     sm2_jac_to_affine(r, &j);
-#else
-    sm2_pt g;
-    g.x = FE_GX; g.y = FE_GY;
-    sm2_scalarmult(r, k, &g);
-#endif
 }
 
 int sm2_scalarmult_add(sm2_pt *r, const sm2_fe *k1, const sm2_pt *p1,
@@ -918,3 +993,143 @@ int sm2_scalarmult_add(sm2_pt *r, const sm2_fe *k1, const sm2_pt *p1,
     return 0;
 #endif
 }
+
+/* ================= 对端公钥预计算表（验签变基点 → 固定基点） =================
+ * 理论依据（本项优化的立足点）：**验签的全部输入都是公开数据**——
+ *   签名 (r,s)、消息摘要、公钥 P，以及由它们导出的 t=(r+s) mod n。
+ *   因此"以 t 的秘密位索引 P 的表"不泄漏任何秘密，**无需常量时间**，
+ *   与签名路径（k、d 保密 ⇒ 必须常量时间）形成明确的不对称。
+ * 于是 R = sG + tP 的两条腿都能变成固定基点乘：
+ *   sG 用静态 comb 表（sm2_scalarmult_base_jac），tP 用本表。
+ * 表布局（域元素下标，共 4·TENT）：
+ *   [0, 2T)   仿射表项 (x,y)  —— 构建后有效数据
+ *   [2T, 3T)  z 坐标          —— 仅构建期使用
+ *   [3T, 4T)  批量求逆前缀     —— 仅构建期使用
+ * 构建代价 ≈ 260 次倍点 + 31 次加法 + 1 次求逆 ≈ 0.7 次普通验签 ⇒ 2 次验签后净赚。 */
+#if SMC_SM2_PEER_TABLE
+
+#define PTBL_X(t, a)   ((t) + 2 * (a))
+#define PTBL_Y(t, a)   ((t) + 2 * (a) + 1)
+#define PTBL_Z(t, a)   ((t) + 2 * (int)SMC_SM2_TENT + (a))
+#define PTBL_PRE(t, a) ((t) + 3 * (int)SMC_SM2_TENT + (a))
+
+static sm2_jac ptbl_get(const sm2_fe *t, int a)
+{
+    sm2_jac j;
+    j.x = *PTBL_X(t, a);
+    j.y = *PTBL_Y(t, a);
+    j.z = *PTBL_Z(t, a);
+    j.inf = 0;
+    return j;
+}
+
+static void ptbl_put(sm2_fe *t, int a, const sm2_jac *j)
+{
+    *PTBL_X(t, a) = j->x;
+    *PTBL_Y(t, a) = j->y;
+    *PTBL_Z(t, a) = j->z;
+}
+
+size_t sm2_peer_table_bytes(void) { return (size_t)SMC_SM2_PEER_TABLE_BYTES; }
+
+int sm2_peer_table_build(void *tbl, const uint8_t pub[SMC_SM2_PUBKEY])
+{
+    sm2_fe *t = (sm2_fe *)tbl;
+    sm2_jac B[SMC_SM2_TBITS];
+    sm2_pt P;
+    int i, alpha;
+
+    if (!tbl) return -1;
+    if (sm2_parse_pubkey(&P, pub) != 0) return -1;   /* 非法曲线点拒绝 */
+
+    /* B_i = 2^(i·d)·P：反复倍点直接构造（与生成器同构，不经标量乘） */
+    sm2_jac_from_affine(&B[0], &P);
+    for (i = 1; i < (int)SMC_SM2_TBITS; i++) {
+        sm2_jac c = B[i - 1];
+        int b;
+        for (b = 0; b < (int)SMC_SM2_DBLK; b++) {
+            sm2_jac d;
+            sm2_jac_double(&d, &c);
+            c = d;
+        }
+        B[i] = c;
+    }
+
+    /* T[α] = Σ α_i·B_i（Jacobian 链，免求逆）；α=0 为占位、不参与 */
+    for (alpha = 1; alpha < (int)SMC_SM2_TENT; alpha++) {
+        int low = 0;
+        int rest;
+        while (((alpha >> low) & 1) == 0) low++;
+        rest = alpha & (alpha - 1);
+        if (rest == 0) {
+            ptbl_put(t, alpha, &B[low]);
+        } else {
+            sm2_jac acc = ptbl_get(t, rest), s;
+            sm2_jac_add(&s, &acc, &B[low]);
+            ptbl_put(t, alpha, &s);
+        }
+    }
+
+    /* 一次 Montgomery 批量求逆把 31 项转仿射（替代 31 次单独求逆） */
+    {
+        sm2_fe inv;
+        int a;
+        *PTBL_PRE(t, 1) = *PTBL_Z(t, 1);
+        for (a = 2; a < (int)SMC_SM2_TENT; a++) {
+            sm2_fp_mul(PTBL_PRE(t, a), PTBL_PRE(t, a - 1), PTBL_Z(t, a));
+        }
+        sm2_fp_inv(&inv, PTBL_PRE(t, (int)SMC_SM2_TENT - 1));
+        for (a = (int)SMC_SM2_TENT - 1; a >= 1; a--) {
+            sm2_fe zi, z2, z3, x, y;
+            if (a == 1) {
+                zi = inv;
+            } else {
+                sm2_fp_mul(&zi, &inv, PTBL_PRE(t, a - 1));
+                sm2_fp_mul(&inv, &inv, PTBL_Z(t, a));
+            }
+            sm2_fp_sqr(&z2, &zi);
+            sm2_fp_mul(&z3, &z2, &zi);
+            sm2_fp_mul(&x, PTBL_X(t, a), &z2);
+            sm2_fp_mul(&y, PTBL_Y(t, a), &z3);
+            *PTBL_X(t, a) = x;
+            *PTBL_Y(t, a) = y;
+        }
+    }
+    return 0;
+}
+
+void sm2_peer_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const void *tbl)
+{
+    const sm2_fe *t = (const sm2_fe *)tbl;
+    sm2_jac acc, tmp;
+    unsigned a;
+    int j;
+
+    /* 与静态 comb 表同构，但**不做常量时间处理**：验签标量与公钥均为公开数据
+       （见本段开头的不对称性论证），直接索引既快又无泄漏面。 */
+    a = comb_idx(k, SMC_SM2_DBLK - 1);
+    if (a == 0) {
+        sm2_jac_set_inf(&acc);
+    } else {
+        sm2_pt p;
+        p.x = *PTBL_X(t, (int)a);
+        p.y = *PTBL_Y(t, (int)a);
+        sm2_jac_from_affine(&acc, &p);
+    }
+    for (j = SMC_SM2_DBLK - 2; j >= 0; j--) {
+        sm2_jac_double(&tmp, &acc);
+        acc = tmp;
+        a = comb_idx(k, j);
+        if (a == 0) continue;
+        {
+            sm2_pt p;
+            p.x = *PTBL_X(t, (int)a);
+            p.y = *PTBL_Y(t, (int)a);
+            sm2_jac_add_mixed(&tmp, &acc, &p);
+            acc = tmp;
+        }
+    }
+    *r = acc;
+}
+
+#endif /* SMC_SM2_PEER_TABLE */

@@ -189,6 +189,48 @@ int sm2_verify(const uint8_t sig[SMC_SM2_SIG], const uint8_t dgst[SMC_SM3_DIGEST
 
 #endif /* SMC_SM2_SIGN */
 
+#if SMC_SM2_PEER_TABLE
+
+/*
+ * 对端公钥预计算表版验签：R = sG + tP 的两条腿都用 comb 表。
+ *   sG  → sm2_scalarmult_base_jac（静态基点表）
+ *   tP  → sm2_peer_scalarmult_jac（对端公钥表；本来是最贵的变基点腿）
+ * 数学与 sm2_verify 完全一致（同一判定式），仅标量乘实现不同；
+ * 因此可用差分测试逐位比对二者结果（见 tests/test_all.c）。
+ */
+int sm2_verify_with_table(const uint8_t sig[SMC_SM2_SIG], const uint8_t dgst[SMC_SM3_DIGEST],
+                          const void *tbl)
+{
+    sm2_fe e, r, s, t, rx;
+    sm2_jac j1, j2, js;
+    sm2_pt R;
+    uint8_t x1[32];
+
+    if (!tbl) return -1;
+    sm2_fe_from_bytes(&r, sig);
+    sm2_fe_from_bytes(&s, sig + 32);
+    if (!sm2_fn_in_range(&r) || !sm2_fn_in_range(&s)) return -1;
+
+    sm2_fn_add(&t, &r, &s);                    /* t = (r + s) mod n */
+    if (sm2_fe_is_zero(&t)) return -2;
+
+    sm2_scalarmult_base_jac(&j1, &s);          /* sG：静态基点 comb 表 */
+    sm2_peer_scalarmult_jac(&j2, &t, tbl);     /* tP：对端公钥 comb 表 */
+    sm2_jac_add(&js, &j1, &j2);
+    if (js.inf) return -4;
+    sm2_jac_to_affine(&R, &js);
+
+    sm2_fe_to_bytes(x1, &R.x);
+    sm2_fe_from_bytes(&rx, x1);
+    sm2_fn_mod(&rx, &rx);
+    sm2_fe_from_bytes(&e, dgst);
+    sm2_fn_mod(&e, &e);
+    sm2_fn_add(&rx, &rx, &e);                  /* R = (e + x1') mod n */
+    return (sm2_fe_cmp(&rx, &r) == 0) ? 0 : -5;
+}
+
+#endif /* SMC_SM2_PEER_TABLE */
+
 #if SMC_SM2_ECDH
 
 int sm2_ecdh(uint8_t shared[SMC_SM2_BYTES], const uint8_t d[SMC_SM2_BYTES],

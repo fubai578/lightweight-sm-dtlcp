@@ -81,7 +81,9 @@ build_one no-comb     "同 full，关闭基点 comb 表（-DSMC_SM2_FIXED_TABLE=
 build_one trim-noenc  "裁 SM2 公钥加密/解密（DTLCP 最小配置）" -DSMC_SM2_ENC=0
 build_one trim-min    "最小 RAM/Flash：SMALL+TINY 内核 + 裁 ENC/CBC + 关 comb 表" \
                       -DSMC_SM2_ENC=0 -DSMC_SM3_KERNEL=3 -DSMC_SM4_KERNEL=3 -DSMC_SM4_MODE_CBC=0 \
-                      -DSMC_SM2_FIXED_TABLE=0
+                      -DSMC_SM2_FIXED_TABLE=0 -DSMC_SM2_PEER_TABLE=0
+build_one ct-nocomb   "常量时间 + **关** comb 表（改造前的 CT 形态）：量化\"用表与 CT 结合\"省下的代价"                       -DSMC_SM2_CT=1 -DSMC_SM2_FIXED_TABLE=0
+build_one peer-off    "关对端公钥预计算表（SMC_SM2_PEER_TABLE=0）：量化该特性的 Flash 代价"                       -DSMC_SM2_PEER_TABLE=0
 build_one tiny-stack  "全功能 + SM3 TINY 滚动调度核（最小栈）" -DSMC_SM3_KERNEL=3
 build_one ct-const    "常量时间标量乘（SMC_SM2_CT=1；comb 表按设计自动禁用）" -DSMC_SM2_CT=1
 

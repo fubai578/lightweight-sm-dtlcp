@@ -5,6 +5,7 @@
 #ifndef SMC_SM2_INTERNAL_H
 #define SMC_SM2_INTERNAL_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include "smc/smc_config.h"
 
@@ -60,8 +61,22 @@ void sm2_encode_pubkey(uint8_t pub[SMC_SM2_PUBKEY], const sm2_pt *p);
 void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p);
 void sm2_scalarmult(sm2_pt *r, const sm2_fe *k, const sm2_pt *p);
 void sm2_scalarmult_base(sm2_pt *r, const sm2_fe *k);
+/* 基点乘的 Jacobian 输出（不求逆）：供需要把结果再相加的路径复用（如验签 sG+tP） */
+void sm2_scalarmult_base_jac(sm2_jac *r, const sm2_fe *k);
 /* r = k1·p1 + k2·p2；无穷时返回 -1 */
 int  sm2_scalarmult_add(sm2_pt *r, const sm2_fe *k1, const sm2_pt *p1,
                         const sm2_fe *k2, const sm2_pt *p2);
+
+/* ---- 对端公钥预计算表（验签变基点 → 固定基点；输入全为公开数据，无侧信道顾虑） ---- */
+#if SMC_SM2_PEER_TABLE
+/* 表占用 4·TENT 个域元素：前 2·TENT 为仿射表项（构建后有效数据 2048 B），
+   其余为构建期暂存（z 坐标 + 批量求逆前缀）。总大小见下 */
+size_t sm2_peer_table_bytes(void);
+/* 用对端公钥构建 comb 表；非法曲线点返回负值。
+   tbl 需 ≥4 字节对齐、容量 ≥ sm2_peer_table_bytes()。 */
+int  sm2_peer_table_build(void *tbl, const uint8_t pub[SMC_SM2_PUBKEY]);
+/* r = k·P（P 为建表时的对端公钥）的 Jacobian 输出；表不匹配时 fail-closed（验签失败） */
+void sm2_peer_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const void *tbl);
+#endif
 
 #endif /* SMC_SM2_INTERNAL_H */

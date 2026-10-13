@@ -158,6 +158,22 @@ int main(void)
 
         MEASURE(sm2_ecdh(shared, d1, p2), iters_slow, c0, n0);
         row("ecdh", iters_slow, c0, n0);
+
+#if SMC_SM2_PEER_TABLE
+        /* 对端公钥预计算表：把验签的变基点腿 tP 变成固定基点乘。
+           依据：验签输入（r,s、摘要、公钥）全为公开数据 ⇒ 查表无侧信道顾虑。 */
+        {
+            static uint32_t ptbl[SMC_SM2_PEER_TABLE_BYTES / 4];   /* 4 KB，由调用方提供 */
+            if (sm2_peer_table_build(ptbl, p1) == 0) {
+                MEASURE(sm2_peer_table_build(ptbl, p1), 8, c0, n0);
+                row("对端表构建（一次性，单点）", 8, c0, n0);
+                MEASURE(sm2_verify_with_table(sig, dgst, ptbl), iters_slow, c0, n0);
+                row("verify（对端表，复用）", iters_slow, c0, n0);
+            } else {
+                printf("| 对端表构建失败 | - | - | - | - |\n");
+            }
+        }
+#endif
     }
 #endif
 

@@ -196,9 +196,12 @@ int main(void)
     printf(" * 生成时经 1 次批量求逆转仿射（替代 %u 次单独求逆）。\n", TENT - 1);
     printf(" */\n");
     printf("#ifndef SMC_SM2_BASE_TABLE_H\n#define SMC_SM2_BASE_TABLE_H\n\n");
-    printf("#define SMC_SM2_TBITS %d\n", GEN_TBITS);
-    printf("#define SMC_SM2_DBLK  %d\n", DBLK);
-    printf("#define SMC_SM2_TENT  %uu\n\n", TENT);
+    printf("#include \"smc/smc_config.h\"\n\n");
+    printf("/* 表参数以 smc_config.h 为唯一来源；本处只做一致性校验，避免代码与表错配 */\n");
+    printf("#if SMC_SM2_TBITS != %d || SMC_SM2_TENT != %uu || SMC_SM2_DBLK != %d\n",
+           GEN_TBITS, TENT, DBLK);
+    printf("#error \"基点表参数与 smc_config.h 不一致：请同步 GEN_TBITS 或重新生成表\"\n");
+    printf("#endif\n\n");
     printf("static const sm2_pt SM2_COMB_TABLE[SMC_SM2_TENT] = {\n");
     for (alpha = 0; alpha < (int)TENT; alpha++) {
         printf("    /* [%2d]%s */\n    { ", alpha,

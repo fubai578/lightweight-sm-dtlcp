@@ -87,24 +87,131 @@ static const char *path_name(int is_base)
                    : "通用 sm2_scalarmult_jac（tP 腿）";
 }
 
-int main(void)
+/*
+ * 大样本扫描模式：--sweep N
+ * 64 个 nonce 只覆盖有限输入；常量时间论断需要更强的证据，故提供本模式对 N 个
+ * 标量（随机 + 边界）统计运算次数的极差，并按构建给出断言：
+ *   SMC_SM2_CT=1 → 两条路径都必须**完全恒定**（极差 0），否则退出码非 0
+ *   SMC_SM2_CT=0 → 至少通用路径应随秘密变化（否则说明变时间性质丢失，需排查）
+ * 用法：./bin/bench_sct_ct --sweep 4096   （CI 以此作为门禁）
+ */
+static int sweep_mode(uint32_t n)
+{
+#if !HAVE_COUNT
+    printf("（未启用 SMC_SM2_OPCOUNT，无法扫描）\n");
+    return 2;
+#else
+    uint32_t st = 0x51ED1234u;
+    uint32_t amin[2], amax[2], dmin[2], dmax[2];
+    uint32_t t;
+    int p, bad = 0;
+
+    for (p = 0; p < 2; p++) {
+        amin[p] = 0xFFFFFFFFu; amax[p] = 0;
+        dmin[p] = 0xFFFFFFFFu; dmax[p] = 0;
+    }
+
+    for (t = 0; t < n; t++) {
+        sm2_fe k;
+        uint32_t ca[2], cd[2];
+        int b;
+
+        if (t == 0) {                       /* 边界 1：n−1（最大合法标量） */
+            uint8_t nb[32];
+            for (b = 0; b < 32; b++) nb[b] = SM2_PARAM_N[b];
+            nb[31] -= 1;
+            sm2_fe_from_bytes(&k, nb);
+        } else if (t == 1) {                /* 边界 2：稀疏 0x8000…0001 */
+            uint8_t nb[32];
+            for (b = 0; b < 32; b++) nb[b] = 0;
+            nb[0] = 0x80;
+            nb[31] = 0x01;
+            sm2_fe_from_bytes(&k, nb);
+        } else if (t == 2) {                /* 边界 3：高位全 1（≈n 的一半以上） */
+            uint8_t nb[32];
+            for (b = 0; b < 32; b++) nb[b] = 0xFF;
+            nb[0] = 0x7F;
+            sm2_fe_from_bytes(&k, nb);
+        } else {                            /* 随机（高位清零保证 < n） */
+            uint8_t rb[32];
+            trand(rb, 32, &st);
+            rb[0] &= 0x7F;
+            sm2_fe_from_bytes(&k, rb);
+        }
+
+        for (p = 0; p < 2; p++) {
+            uint32_t a0 = sm2_op_dbl = 0;
+            (void)a0;
+            sm2_op_add = 0;
+            run_path(&k, p == 1);
+            ca[p] = (uint32_t)sm2_op_add;
+            cd[p] = (uint32_t)sm2_op_dbl;
+        }
+        for (p = 0; p < 2; p++) {
+            if (ca[p] < amin[p]) amin[p] = ca[p];
+            if (ca[p] > amax[p]) amax[p] = ca[p];
+            if (cd[p] < dmin[p]) dmin[p] = cd[p];
+            if (cd[p] > dmax[p]) dmax[p] = cd[p];
+        }
+    }
+
+    printf("### 大样本运算次数扫描（%u 个标量：随机 + n−1 / 稀疏 / 高位全1 边界）\n\n", n);
+    printf("| 标量乘路径 | 点加 最小/最大/极差 | 倍点 最小/最大/极差 | 判定 |\n");
+    printf("|---|---|---|---|\n");
+    for (p = 0; p < 2; p++) {
+        printf("| %s | %u / %u / %u | %u / %u / %u | %s |\n",
+               path_name(p == 1), amin[p], amax[p], amax[p] - amin[p],
+               dmin[p], dmax[p], dmax[p] - dmin[p],
+               (amax[p] == amin[p] && dmax[p] == dmin[p]) ? "**恒定**" : "**随秘密变化**");
+    }
+    printf("\n");
+#if SMC_SM2_CT
+    for (p = 0; p < 2; p++) {
+        if (amax[p] != amin[p] || dmax[p] != dmin[p]) {
+            printf("判定：**不通过** — CT 构建下 %s 的运算次数出现变动（极差非 0）\n",
+                   path_name(p == 1));
+            bad = 1;
+        }
+    }
+    if (!bad) {
+        printf("判定：**通过** — CT 构建下两条路径在 %u 个标量上运算次数完全恒定\n", n);
+    }
+#else
+    if (amax[0] == amin[0] && dmax[0] == dmin[0]) {
+        printf("判定：**异常** — 变时间构建的通用路径运算次数恒定，与预期不符\n");
+        bad = 1;
+    } else {
+        printf("判定：**通过** — 变时间构建的通用路径随秘密变化（预期行为）\n");
+    }
+#endif
+    return bad;
+#endif /* HAVE_COUNT */
+}
+
+int main(int argc, char **argv)
 {
     static uint8_t nonces[N_IN][32];
     static uint64_t tmin[2][N_IN];
     static uint32_t add_cnt[2][N_IN], dbl_cnt[2][N_IN];
     uint32_t st = 0xC0FFEE01u;
-    int i, p;
+    int i, p, sweep = 0;
+
+    if (argc > 2 && strcmp(argv[1], "--sweep") == 0) sweep = atoi(argv[2]);
 
     setvbuf(stdout, NULL, _IONBF, 0);
+
+    /* 基点必须在扫描模式之前初始化：曾因下面提前 return 而漏掉，
+       导致 --sweep 扫的是 k·(0,0)（非曲线点，退化分支频繁触发，运算次数不是真实路径的）。 */
+    sm2_fe_from_bytes(&GPT.x, SM2_PARAM_GX);
+    sm2_fe_from_bytes(&GPT.y, SM2_PARAM_GY);
+
+    if (sweep > 0) return sweep_mode((uint32_t)sweep);
 
 #if SMC_SM2_CT
     printf("### 标量乘执行路径相关性实验 — 构建 SMC_SM2_CT=1（常量时间全表扫描）\n\n");
 #else
     printf("### 标量乘执行路径相关性实验 — 构建 SMC_SM2_CT=0（变时间窗口/wNAF/comb 查表）\n\n");
 #endif
-
-    sm2_fe_from_bytes(&GPT.x, SM2_PARAM_GX);
-    sm2_fe_from_bytes(&GPT.y, SM2_PARAM_GY);
 
     /* nonce 集合：62 个随机（高位清零保证 < n）+ 2 个极端（n−1 / 稀疏） */
     for (i = 0; i < N_IN - 2; i++) {
