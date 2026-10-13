@@ -30,6 +30,9 @@ jobs:
           echo "指纹种类：$fps（应为 1）"
           [ "$fps" -eq 1 ]
 
+      - name: 板级代码预检（宿主仿真 + 语法检查 + 32K 链接证明）
+        run: bash scripts/check_embedded.sh
+
       - name: 性能基准
         run: bash scripts/benchmark.sh
 
@@ -41,6 +44,16 @@ jobs:
           [ "$(grep -c '随秘密变化' /tmp/sct0.log)" -eq 2 ]
           [ "$(grep -c '恒定' /tmp/sct1.log)" -eq 2 ]
 
+      - name: 大样本恒定性门禁（4096 个标量的运算次数极差）
+        run: |
+          # 退出码即断言：CT 构建下两条路径必须完全恒定（极差 0）；
+          # 变时间构建下通用路径必须随秘密变化（否则变时间性质丢失，需排查）
+          ./bin/bench_sct_ct  --sweep 4096 | tail -6
+          ./bin/bench_sct_opt --sweep 4096 | tail -6
+
+      - name: 常量时间代价（交错测量，工件）
+        run: bash scripts/ct_cost.sh 3
+
       - name: 上传报告
         uses: actions/upload-artifact@v4
         with:
@@ -48,6 +61,7 @@ jobs:
           path: |
             bin/bench_results.md
             bin/size_report.md
+            bin/ct_cost.md
 
   windows:
     name: Windows (MinGW / Git Bash)

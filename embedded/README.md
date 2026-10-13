@@ -8,7 +8,7 @@
 |---|---|
 | `port/smc_port.h` | 平台钩子接口：TRNG 熵源 / 周期计数 / 看门狗 / 延时 |
 | `port/smc_port_stm32.c` | STM32F4/L4 参考实现（DWT 周期计数 + 硬件 RNG） |
-| `cortex-m4/` | 裸机工程骨架：Makefile、main.c（KAT 自检 + 微基准）、链接脚本占位 |
+| `cortex-m4/` | 裸机工程骨架：`build.sh`（无需 make）、`stm32f4xx_min.h`（**自带最小寄存器定义，不需要 CMSIS**）、`board_selftest.c`（KAT+基准，与宿主仿真共用）、`host_sim_main.c`（PC 上跑板级代码）、`stm32f407.ld` 与 `stm32f407_32k.ld`（32K 约束证明） |
 
 ## 快速移植（5 步）
 
@@ -22,7 +22,16 @@
 3. **加入源文件**：`crypto/src/*.c`（算法库零 libc 依赖，**含自动生成的 `sm2_base_table.h`**）
    + 需要传输时 `dtlcp/src/*.c`（仅依赖 string.h）。
 4. **接入随机数**：`smc_rng.entropy = 你的 TRNG 回调`；签名 nonce / IV / 密钥生成都走此接口。
-5. **构建**：`cd embedded/cortex-m4 && make`（需 arm-none-eabi-gcc），或把源码拖入 CubeMX/Keil/IAR 工程。
+5. **构建**（**不需要 make**）：
+   ```bash
+   bash embedded/cortex-m4/build.sh sim           # ① 宿主仿真：无工具链也能在 PC 上跑通板级代码
+   bash embedded/cortex-m4/build.sh flash opt     # ② 交叉编译（需 arm-none-eabi-gcc）
+   bash embedded/cortex-m4/build.sh 32k opt       # ③ 32K Flash 约束证明
+   ```
+   变体：第二参数 `ref|opt|tiny` 选内核（板上做 A/B 对照），第三参数
+   `ct|loop|loop_sm4|loop_verify|loop_ecdh`（常量时间 / 连续循环测功耗）。
+   装好工具链后 `bash scripts/check_embedded.sh` 一次跑完仿真 + 语法 + 交叉 + 32K 证明。
+   **完整操作步骤（接线、烧录、记录表、功耗差值法）见 `docs/08-硬件测试操作指南.md`。**
 
 ## 内存预算（x86-64 对象实测，MCU 略小，见 bin/size_report.md）
 
@@ -48,7 +57,8 @@
 最长路径：`scalarmult_add_naf → build_odd_table → sm2_jac_add → sm2_fp_mul → fe_mod_once`。
 
 > 早期文档曾按"`fe_pow_mod` 688 B"预留栈——该结论**不成立**（那只是单个函数帧，且现已非最大热点）。
-> 该数值随编译器版本变化，请在自己的工具链上重跑脚本后再定栈。
+> 该数值随编译器版本变化；**拿到板子后必须用 ARM 目标文件重算**：
+> `cd embedded/cortex-m4 && python ../../scripts/stack_depth.py "*.su" --objs "*.o"`。
 > DTLCP 完整协议栈上下文约 7KB（含 3×1600B 记录缓冲，可在 `dtlcp_internal.h` 调小）。
 
 ## RTOS 集成注意

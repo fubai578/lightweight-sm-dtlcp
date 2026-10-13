@@ -33,8 +33,22 @@ smc_m4.bin: smc_m4.elf
 	$(OBJCOPY) -O binary $< $@
 
 size: smc_m4.elf
-	@echo "--- stack usage hotspots ---"
-	@cat *.su ../port/*.su ../../crypto/src/*.su 2>/dev/null | sort -t: -k3 -rn | head -8
+	@echo "--- 单函数栈帧 top8（按字节列排序；完整调用路径见注释）---"
+	@echo "--- 注意：单函数帧不等于栈预算，必须用 scripts/stack_depth.py 算调用路径 ---"
+	@cat *.su ../port/*.su ../../crypto/src/*.su 2>/dev/null | sort -t$$'	' -k2 -rn | head -8 | 	  awk -F'	' '{ split($$1,a,":"); printf "  %-28s %s B
+", a[length(a)], $$2 }'
+
+# 32K Flash 约束证明：用 FLASH LENGTH=32K 的链接脚本构建（**无需购买小 Flash 的板子**）
+size32k:
+	bash build.sh 32k
+
+# 宿主仿真：无 ARM 工具链也能验证板级代码（编译/KAT/流程/打印）
+sim:
+	bash build.sh sim
+
+# 无 make 的环境直接用：bash build.sh [flash|32k|sim|clean]
+sh:
+	bash build.sh
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -42,4 +56,4 @@ size: smc_m4.elf
 clean:
 	rm -f $(OBJS) *.su smc_m4.elf smc_m4.bin smc_m4.map
 
-.PHONY: all clean size
+.PHONY: all clean size size32k sim sh

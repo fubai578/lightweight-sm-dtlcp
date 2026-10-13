@@ -31,6 +31,18 @@ void smc_port_delay_us(uint32_t us);
 /* ---- 平台初始化（时钟/外设） ---- */
 int smc_port_init(void);
 
+/* ---- 硬件 RNG 的使能与健康自检（可选，但接 TRNG 时必须实现） ----
+ * 随机数健康要求见 docs/03 §4：熵源健康测试通过后方可用于播种/取 nonce。
+ *   smc_port_rng_enable()   : 使能外设时钟与 RNG（幂等）
+ *   smc_port_rng_selftest() : 返回 0=通过；负值=失败（-2 种子/时钟错误、-4 样本重复、-5 比特失衡）
+ *                             ones_pct_out 非空时回填"1 的比例(%)"，便于打印 */
+int smc_port_rng_enable(void);
+int smc_port_rng_selftest(int *ones_pct_out);
+
+/* ---- 调试输出（可选；重定向到串口/ITM/SWO）----
+ * 板级自检与基准的 printf 依赖它；不实现时需自行提供 _write()/__io_putchar()。 */
+void smc_port_putc(int ch);
+
 /*
  * 与 smc_rng.h 的对接示例：
  *   static int entropy_cb(void *u, uint8_t *b, size_t n) { (void)u; return smc_port_rng_bytes(b, n); }
