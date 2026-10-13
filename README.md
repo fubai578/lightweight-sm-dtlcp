@@ -14,7 +14,9 @@
 | ② 基于标准 DTLCP 完成国密改造、替换原生密码套件、UDP 低时延传输 | 记录层（SM4-CTR EtM / SM4-CBC MtE + epoch/序列号防重放）+ 握手精简（FULL / RESUME / PSK）+ HMAC-SM3 密钥调度 + 紧凑 SM2 证书 | FULL **1.5-RTT**（对比 TLCP 标准 3-RTT）、RESUME **1-RTT / 0 次 SM2**、PSK **0-RTT 早期数据**；FULL 握手时延 **6.53ms → 4.00ms（1.63×，comb 前后同条件 A/B，7 轮取最小）** |
 | ③ 算法实测（算力/功耗）、可移植嵌入式 C、固件安全改造规范 | 基准/内存/功耗模型三类报告 + 零 libc 依赖嵌入式 C + 9 章固件安全规范 | 6 内核变体测试全绿且**差分指纹逐位一致**；KAT 与 OpenSSL 3.2 交叉验证（`docs/04`） |
 | ④ **第三方基线对照**（外部锚点，非自证） | `scripts/thirdparty_bench.sh`：自动取 GmSSL 3.1.1（纯 C 国密参考实现）编译子集并**交错测量** | 对 GmSSL：SM4 **打平–1.12×**、SM2 基点乘 **1.61×**、验签 **1.03×**；**SM3 0.87×、变基点乘 0.62×**（根因：域乘法慢 2.2×，已列入第一优先优化项） |
-| ✦ 侧信道防护实证（加分项） | `SMC_SM2_CT` 常量时间标量乘 + **执行路径相关性实验**（`apps/bench/bench_sct.c`，覆盖通用/基点两条路径） | 操作计数（确定性指标）：变时间构建两条路径的点加次数分别随 nonce 在 **5–58**、**2–51** 间变化；常量时间构建**两条路径均恒定为 78 add / 257 dbl**（极差 0）→ 执行路径与秘密无关 |
+| ✦ **常量时间不再放弃预计算表**（本轮新结论） | CT 构建以"静态仿射 comb 表 + **全表扫描 cmov**"复用同一张只读表；`scripts/ct_cost.sh` 交错测量 | 基点路径的点加/倍点由 257 dbl+78 add 降到 **51 dbl + 51 add**，且 **4096 个标量极差为 0**；性能代价由约 **2.8× 降到 1.06×**（通用路径 1.08×） |
+| ✦ **验签变基点腿降级为固定基点**（本轮新结论） | `sm2_peer_table_build` / `sm2_verify_with_table`（`SMC_SM2_PEER_TABLE`）：依据"验签输入全为公开数据 ⇒ 无需常量时间"为对端公钥建 comb 表 | verify **5.97M → 3.24M cycles（1.84×）**；建表 3.33M ≈ 0.56 次验签，**第 2 次验签起净赚**；每对端缓存 **2 KB** |
+| ✦ 侧信道防护实证（加分项） | `SMC_SM2_CT` 常量时间标量乘 + **执行路径相关性实验**（`apps/bench/bench_sct.c`，覆盖通用/基点两条路径） | 操作计数（确定性指标）：变时间构建两条路径的点加次数分别随 nonce 在 **5–58**、**2–51** 间变化；常量时间构建**基点 51/51、通用 78/257，均极差 0** → 执行路径与秘密无关 |
 
 ---
 
@@ -43,6 +45,9 @@ bash scripts/size_report.sh  # ⑤ 内存：Flash/RAM/栈深 + 6 种裁剪配置
 python scripts/power_model.py  # ⑥ 功耗：能量模型表 + 终端日能耗场景估算
 bash scripts/gen_fixed_base.sh --check   # ⑦ 校验基点预计算表与生成器一致
 bash scripts/thirdparty_bench.sh         # ⑧ 第三方基线对照（下载并编译 GmSSL 子集 → bin/thirdparty_compare.md）
+bash scripts/ct_cost.sh                  # ⑨ 常量时间的性能代价，交错测量 → bin/ct_cost.md
+./bin/bench_sct_ct$EXE --sweep 4096      # ⑩ 大样本恒定性门禁（4096 标量，退出码即断言）
+bash scripts/check_embedded.sh           # ⑪ 板级代码预检（宿主仿真+语法+32K 证明，无需 ARM 工具链）
 
 bash scripts/build.sh && ./bin/bench_sct_opt$EXE && ./bin/bench_sct_ct$EXE   # ⑨ 侧信道执行路径实验
 ```
@@ -113,6 +118,7 @@ docs/           文档（建议阅读顺序：01 → 02 → 04 → 03）
   04-测试与性能对比报告.md    测试方法与全部实测数据（算力/内存/协议开销/功耗估算）
   05-硬件采购清单.md          精简预算采购清单（¥60–120）+ 每件硬件的用途与测量接线
   06-作品设计报告.md          **复赛提交物**：按主办方模板撰写（匿名评审稿）
+  07-分工与推进计划.md        硬件到位后的现状剖析 + 任务卡排期（占板/不占板两条队列）
 
 AGENTS.md       项目长期记忆（选题、技术决策、调试经验——修改代码前必读）
 bin/ obj/       构建产物（可随时删除后重建）
@@ -135,7 +141,13 @@ bin/ obj/       构建产物（可随时删除后重建）
 代价是 **3096 B Flash（表 2048 B + 代码约 1 KB）、静态 RAM 增量 0**。
 表由 `apps/gen/gen_fixed_base.c` 生成（生成时 1 次批量求逆转仿射，并自检与 REF 二进制标量乘一致），
 `scripts/gen_fixed_base.sh --check` 校验表与生成器同步（CI 已纳入）。
-CT 构建按设计**自动禁用**查表路径以保持常量时间性质。
+**CT 构建不再禁用查表**（本轮改进）：改为对同一张表做**全表扫描 + cmov**（访存模式与运算次数恒定），
+于是常量时间的性能代价从约 **2.8× 降到 1.06×**——"用预计算表"与"常量时间"其实并不冲突。
+详见 `docs/04 §3.6` 与 `bash scripts/ct_cost.sh` 的实测。
+
+**对端公钥预计算表**（`SMC_SM2_PEER_TABLE`，默认开）：验签 `R = sG + tP` 的变基点腿 `tP`
+可借助"验签输入全为公开数据 ⇒ 无需常量时间"这一不对称性，也用 comb 表驱动，
+使验签 **1.84×**（建表 0.56 次验签，第 2 次起净赚）。见 `docs/04 §3.7`。
 
 功能裁剪（`smc_config.h`，`-D` 覆盖）：`SMC_SM2_ENC`（公钥加密）、`SMC_SM2_SIGN`、`SMC_SM2_ECDH`、
 `SMC_SM4_MODE_CBC/CTR`、`SMC_DRBG`、`SMC_SM2_FIXED_TABLE`。裁剪组合的 Flash/RAM/栈深见 `bin/size_report.md`。
@@ -168,8 +180,11 @@ CT 构建按设计**自动禁用**查表路径以保持常量时间性质。
 4. **协议端到端**：三模式 UDP 会话 + CBC 标准套件 + 0-RTT 早期数据 + 加密回显（`tests/test_dtlcp.c`）。
 5. **攻击负向**：重放、密文篡改、截断、伪造 MAC、窗口内乱序重复、证书篡改、非法曲线点——全部必须被拒绝；
 6. **侧信道执行路径**：确定性操作计数证明变时间构建的加法次数随 nonce 变化（通用路径 5–58、基点路径 2–51），
-   常量时间构建两条路径均恒定（78 add / 257 dbl）——CI 中对两个断言自动校验；
-7. **云端复现**：GitHub Actions 在 Ubuntu 与 Windows 两个平台分别构建并跑全量测试，差分指纹种类数断言为 1。
+   常量时间构建两条路径均恒定（基点 51/51、通用 78/257）——CI 中对两个断言自动校验；
+   另有**大样本门禁** `./bin/bench_sct_ct --sweep 4096`：4096 个标量（含 3 个边界值）上极差必须为 0；
+7. **对端表专项测试（12 项）**：与 `sm2_verify` 差分一致、篡改/错摘要拒绝、
+   **表与公钥不匹配时 fail-closed**、非法曲线点建表被拒、表项全部在曲线上、紧凑表（2 KB）结果一致；
+8. **云端复现**：GitHub Actions 在 Ubuntu 与 Windows 两个平台分别构建并跑全量测试，差分指纹种类数断言为 1。
 
 复现：`bash scripts/run_tests.sh`（全绿即通过）。
 
@@ -181,7 +196,9 @@ CT 构建按设计**自动禁用**查表路径以保持常量时间性质。
 2. 在 `smc_config.h` 选内核档位（性能优先→FAST；<32KB Flash 的 MCU→TINY+SMALL+裁 ENC，并按需关 comb 表）；
 3. 将 `crypto/src/*.c`（必须，含自动生成的 `sm2_base_table.h`）与 `dtlcp/src/*.c`（需要通信时）加入工程；
 4. 把 TRNG 回调接到 `smc_rng.entropy` / `dtlcp_cfg.entropy`（**生产必须**，否则签名 nonce 走确定性测试路径）；
-5. `cd embedded/cortex-m4 && make`（需 arm-none-eabi-gcc），或拖入 CubeMX/Keil/IAR 工程。
+5. 构建（**不需要 make**）：`bash embedded/cortex-m4/build.sh sim`（无工具链也能在 PC 上跑通板级代码）
+   → `bash embedded/cortex-m4/build.sh flash opt`（交叉编译）→ `bash embedded/cortex-m4/build.sh 32k opt`
+   （32K 适配证明）。接线/烧录/记录表见 **`docs/08-硬件测试操作指南.md`**。
 
 **栈预算（重要）**：`-fstack-usage` 只给单函数帧，实际需要的是调用链之和。
 `scripts/stack_depth.py` 由 `.su` + `objdump` 调用图算出**最大调用路径栈深**：
@@ -203,6 +220,8 @@ CT 构建按设计**自动禁用**查表路径以保持常量时间性质。
 | `docs/04-测试与性能对比报告.md` | 实测数据汇总：正确性、算力、内存、协议开销、功耗估算、优化空间 |
 | `docs/05-硬件采购清单.md` | 硬件采购清单与实测替换说明 |
 | `docs/06-作品设计报告.md` | 复赛提交物（按主办方模板 5 章组织，匿名稿） |
+| `docs/08-硬件测试操作指南.md` | **上板怎么做**：接线、烧录、记录表、功耗差值法、排查表、验收清单 |
+| `docs/07-分工与推进计划.md` | 硬件到位后的现状剖析、任务卡 T0–T7 与占板排期 |
 | `AGENTS.md` | 项目长期记忆：选题背景、已锁定技术决策、12 条关键调试经验（二次开发前必读） |
 
 ---
@@ -226,6 +245,16 @@ Git Bash 默认 GBK 代码页显示 UTF-8 中文所致；不影响功能。可�
 `bash scripts/gen_fixed_base.sh` 重新生成（生成器带自检：全部表项在曲线上、16 个随机标量与 REF
 二进制标量乘一致）；`--check` 只校验不覆盖。CI 会断言仓库内的表与生成器一致，避免出现"过期表"。
 
+**Q：常量时间（`SMC_SM2_CT=1`）到底慢多少？**
+基点路径约 **1.06×**、通用路径约 **1.08×**（`bash scripts/ct_cost.sh` 交错测量，均值口径）。
+注意**不要用最小值作判据**：变时间路径的最小值来自输入集中最省的标量，跨输入比最小值会把代价
+虚报成约 1.7×；同一输入集上的均值才是公平 A/B。
+
+**Q：网关要对很多终端反复验签，怎么加速？**
+用对端公钥预计算表：`sm2_peer_table_build(tbl, peer_pub)` 一次，之后 `sm2_verify_with_table(sig, dgst, tbl)`
+每次约快 **1.84×**。表按公钥缓存（设备公钥长期不变），构建后只需保留 **2 KB**；
+建表成本约 0.56 次普通验签，第 2 次验签起净赚。
+
 **Q：栈要留多少？**
 不要只看 `-fstack-usage` 的单函数帧（那只是自身帧）。用 `python scripts/stack_depth.py "obj/size/*_full.su"`
 算最大调用路径：当前默认配置 **3280 B**，建议任务栈 ≥5 KB、常量时间构建 ≥6 KB。
@@ -247,9 +276,14 @@ Git Bash 默认 GBK 代码页显示 UTF-8 中文所致；不影响功能。可�
 - **0-RTT 风险**：早期数据无前向保密且可重放（与 TLS1.3 同），缓解见 `docs/03 §7`；
 - **握手明文**（与 TLCP 一致）：关键参数由 SKE 签名覆盖，元数据可观察；
 - **常量时间选项（`SMC_SM2_CT`）**覆盖标量乘表访问模式，点运算退化分支仍存在时序面（缓解见 `docs/03 §6`）；
-  该构建下基点 comb 表按设计**禁用**（查表索引依赖秘密，与常量时间目标冲突）；
+  该构建**使用**comb 表，但以全表扫描 + cmov 选表项（访存模式与运算次数恒定），
+  代价约 1.06×——即"恒定访存"与"预计算表"可以并存（`docs/04 §3.6`）；
 - **默认（非 CT）构建的基点 comb 表索引依赖秘密**——与既有的 wNAF 同属"秘密相关访存"类别，
   由 `apps/bench/bench_sct.c` 的执行路径实验**显式量化并如实报告**（而非声称默认构建即抗侧信道）；
+- **对端公钥表（`sm2_verify_with_table`）的安全依据是"验签输入全为公开数据"**：
+  签名 (r,s)、摘要、公钥 P 及其导出的 t 均不保密，故查表无泄漏面，无需常量时间。
+  但这**不适用于签名路径**（k、d 保密，必须走 CT 构建）。表与公钥绑定：
+  传错表只会算出不同的 R 从而验签失败（fail-closed），不会误判通过；每对端缓存 2 KB。
 - **加速比口径**：全部为**同一次基准输出内的 REF/OPT 比值**。RDTSC 绝对值受 CPU 频率状态影响，
   跨运行不可比；`notab` 变体（同内核、仅关 comb 表）用于隔离单项优化的净收益；
   与第三方（GmSSL）的比值取自**交错测量**的最小值（`scripts/thirdparty_bench.sh`）。
@@ -272,4 +306,6 @@ bash scripts/benchmark.sh         # 性能对比（bin/bench_results.md）
 bash scripts/size_report.sh       # 内存与栈深（bin/size_report.md）
 python scripts/power_model.py     # 功耗估算
 bash scripts/gen_fixed_base.sh --check   # 基点表与生成器一致性
+bash scripts/ct_cost.sh                  # 常量时间的性能代价（交错测量）
+./bin/bench_sct_ct --sweep 4096          # 大样本恒定性门禁（退出码即断言）
 ```

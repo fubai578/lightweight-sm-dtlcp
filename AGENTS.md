@@ -21,7 +21,9 @@
 | SM3 内核 | REF（教科书消息扩展）/ FAST（展开压缩函数）/ TINY（滚动 16 字调度，栈占用极小） |
 | SM4 内核 | REF（字节 S-box）/ FAST（T-table 4KB +8 轮展开）/ SMALL（256B S-box 无表展开） |
 | SM2 内核 | 域算术：REF=试商长除法约减，OPT=Solinas 折叠约减（8×8 展开乘法）；标量乘：REF=二进制倍点法，OPT=**基点 comb 预计算表（k·G 专用）+ wNAF(w=4)（变基点）+ 验签交织双标量乘**，另提供常量时间全表扫描选项（SMC_SM2_CT，两条路径执行路径恒定 78 add/257 dbl，见 bench_sct） |
-| SM2 基点表 | `SMC_SM2_FIXED_TABLE`（OPT 且非 CT 时默认开）：t=5 → 32 项/2048B **只读**表（占 Flash，RAM 增量 0）＋代码 1048B；keygen/sign 在该项上再快 2.68×/2.47×。**CT 构建自动禁用**（秘密相关查表与常量时间目标冲突）。表由源码生成，禁止手工编辑 |
+| SM2 基点表 | `SMC_SM2_FIXED_TABLE`（OPT 时默认开，**CT 构建也开**）：t=5 → 32 项/2048B **只读**表（占 Flash，RAM 增量 0）＋代码约 2.9KB；keygen/sign 在该项上再快 2.63×/2.31×。表由源码生成，禁止手工编辑 |
+| CT × 预计算表 | **二者不再互斥**（本轮结论）：CT 构建对同一张表做**全表扫描 + cmov**，恒做加法后用掩码决定是否采纳；基点路径 257dbl/78add → **51/51 且 4096 标量极差 0**，性能代价 **2.8× → 1.06×**。判据必须用**同一输入集上的均值**，不可比最小值（会虚报成 1.7×） |
+| 对端公钥表 | `SMC_SM2_PEER_TABLE`（默认开）：**验签输入全为公开数据 ⇒ 无需常量时间**，故为对端公钥建 comb 表把 `tP` 变成固定基点乘 → verify **1.84×**；建表≈0.56 次验签（第 2 次起净赚）；调用方提供缓冲（构建 4KB / 缓存 2KB），与公钥绑定、错表 fail-closed |
 | SM2 裁剪 | SIG（默认开）/ ENC（默认关）/ KE 仅保留 ECDH（DTLCP 用），SM2 加密、SM2KEP 可裁剪；config.h 生成裁剪尺寸对比表 |
 | DTLCP 握手模式 | FULL（ECDHE+SM2 签名认证，2 航班 1.5-RTT）、RESUME（会话恢复 1-RTT）、PSK（预共享密钥，可 0-RTT 早期数据） |
 | 记录层保护 | 标准套件 ECDHE_SM4_CBC_SM3（MAC-then-encrypt）与轻量套件 *_SM4_CTR_SM3（Encrypt-then-MAC），均 HMAC-SM3 |
@@ -40,10 +42,12 @@ dtlcp/      DTLCP 记录层 + 握手 + 密钥调度 + UDP 传输抽象
 apps/       bench 基准（bench_crypto / bench_sct / bench_gmssl）/ demo sensor+gateway / gen 基点表生成器
 embedded/   平台移植层(port) + Cortex-M4 裸机工程骨架
 tests/      KAT + 差分 + 协议仿真测试
-docs/       01 路径规划 / 02 系统设计 / 03 固件安全规范 / 04 测试与性能对比 / 05 硬件采购 / 06 作品设计报告
+docs/       01 路径规划 / 02 系统设计 / 03 固件安全规范 / 04 测试与性能对比 / 05 硬件采购 / 06 作品设计报告 / 07 分工与推进 / 08 硬件测试操作指南
 scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_model.py
             gen_fixed_base.sh（表生成/校验）stack_depth.py（最大调用路径栈深）
             thirdparty_bench.sh + compare_bench.py（GmSSL 对照，交错测量）
+            ct_cost.sh + ct_cost.py（常量时间代价，交错测量）
+            check_embedded.sh（板级预检：宿主仿真 + 语法 + 32K 链接证明）
 ```
 
 ## 四、进度日志（最近一轮：2026-10-09）
@@ -98,8 +102,36 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
       新增 **`docs/06-作品设计报告.md`**（按主办方模板 5 章，**匿名评审稿**）；
       新增 `scripts/stack_depth.py`（最大调用路径栈深，替换错误的单函数帧结论）；
       `power_model.py` 修正取列错误 + 按 FULL 握手真实构成折算
-- [ ] **待硬件到位**：板上 cycles 实测（验证 SM3 展开在 MCU 的收益）、INA226 实测替换 power_model.py 参数、
-      Cortex-M4 交叉编译 size/栈 与 32KB 链接约束证据
+- [x] **硬件到货（2026-10-13）**：现状剖析 + 推进计划写入 **docs/07**（任务卡 T0–T7：占板任务串行、不占板任务并行；
+      唯一硬规则 = 谁提交谁保证 `run_tests.sh` 全绿）。
+      基线复核：run_tests.sh 全绿（6 变体指纹 80c111c8… + DTLCP 36 项）。**三个硬约束**：
+      ① 本机无 `arm-none-eabi-gcc` / `openocd` / `pyocd` / `make`（M0 阻塞项，须提供不依赖 make 的 build.sh）；
+      ② `DTLCP_RECBUF=1600` → `dtlcp_hs.c` 握手函数单帧 `payload[1600]+packet[1600]+body[600]` ≈ **3.8KB 栈**
+         （叠加记录上下文 3×1600B ≈ 4.7KB）→ 20KB RAM 上须先实测栈深，再定「降 RECBUF」或「握手复用 ctx 缓冲」；
+      ③ 报告口径：docs/06 写「Cortex-M4 骨架」而实测将发生在 M3 → 决策点（建议补 F407 核心板 ¥25–60，
+         顺带覆盖 TRNG 条款）
+- [x] **官方复赛通知入库（2026-10-13）**：从竞赛平台 `chinacodes.com.cn` 下齐 —— 通知正文（`news/findNewsByTitle.do?id=256`）、
+      官方附件包（POST `news/appendixdown.do`，字段 `title`/`appendix`/`appendix_store_name`；**服务器套了一层 zip**，
+      内层才是 附件一=团队名单 PDF、附件二/三模板）、盖章版总通知 PDF、附件一 HTML（id=255，465 队）。
+      **⏰ 提交窗口 2026-10-19（周一）9:00 — 10-22（周四）18:00**，队长账号提交，支撑材料 ≤4 GB，
+      命名 `编号-2026密码竞赛复赛作品设计报告 / …相关支撑材料 / …审批及签字页`；本队编号 **CACR2026XTP27G**
+      （已填入 docs/06 封面）。**匿名是硬门槛**：报告与支撑材料不得出现单位/领队/指导/队员信息，违者取消资格
+      ——仓库已扫描无泄漏，`复赛通知附件/` 已在 .gitignore，**打包支撑材料时必须排除**（含名单与签字页）。
+      docs/07 已据此改为**倒排期**：实测窗口 10-13→10-17，10-18 定稿缓冲；必保 T0/T1/T2/T3/T7，
+      T4（W5500 真机）尽力，T5/T6 可缓
+- [x] **创新性轮（2026-10-13）——两项密码学层面新结论**：
+      ① **常量时间不必放弃预计算表**：CT 分支改为对静态 comb 表做全表扫描 + cmov，
+      基点路径运算次数 257dbl/78add → **51/51**（4096 标量极差 0），性能代价 **2.8× → 1.06×**
+      （`scripts/ct_cost.sh` 交错 5 轮、均值口径；通用路径 1.08×）
+      ② **验签变基点腿降级为固定基点**：依据"验签输入全为公开数据 ⇒ 无需常量时间"的不对称性，
+      实现 `sm2_peer_table_build`/`sm2_verify_with_table` → verify **1.84×**，建表≈0.56 次验签，
+      每对端缓存 2KB；新增 12 项专项测试（含错表 fail-closed、紧凑表一致、表项在曲线上）
+      ③ 配套工程：comb 参数上提到 `smc_config.h`（生成器改为只做一致性校验，防参数错配）；
+      `bench_sct --sweep N` 大样本恒定性门禁（CI 以退出码断言）；`build.sh` 变体宏集中为唯一来源
+      ④ 修正三处自身缺陷：sweep 漏初始化基点（曾扫成 k·(0,0)）、跨输入比最小值的口径陷阱、
+      `sm2_keygen(rng=NULL)` 固定种子导致 ECDH 测试在自比
+- [ ] **待做（硬件线）**：M0 工具链+DAPLink 烧录链路 → M1 size/栈深/32KB 链接证据 → M2 INA226 功耗实测
+      → M3 W5500 + DTLCP 真机三模式 → M4 文档定稿；**域运算改造（第一优先）与硬件无关，可并行开工**
 - [ ] **待做（第一优先）**：**域运算改造**——把 `fe_reduce_fold` 的"多轮折叠 + 试商收尾 + 两次条件减"
       改为**一次性硬编码 Solinas 归约**（GmSSL 形态：`r[i] = s[i] + s[8..15]` 组合，无循环无试商），
       预期 fe_mul 562 → 255–300 cycles，收益覆盖全部 SM2 操作（变基点 0.64×→有望 >1×）。
@@ -144,6 +176,18 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
        混用会越界写 16KB 直接段错误
     ④ 两侧二进制**不要放同一 obj 目录**：本项目 `build.sh` 用 `obj/*_<suf>.o` 通配链接，混放会 multiple definition
     ⑤ 交错测量（两侧交替跑、各取多轮最小值）才可信：跨进程的先后顺序会掺入 CPU 频率漂移
-19. **对外部基线的公平性**：GmSSL 的 `sm2_do_sign` 每次签名向**系统 CSPRNG** 取 k
+19. **"提前 return"的分支要检查初始化**：`bench_sct --sweep` 曾在 `GPT` 初始化之前 return，
+    导致扫描的是 `k·(0,0)`（非曲线点，退化分支频繁触发）。**症状识别**：同一函数在两次运行中
+    "各自恒定但数值不同"（257 vs 263），优先怀疑输入/状态而非算法本身。
+20. **跨输入比最小值是陷阱**：变时间路径的耗时随输入变化，最小值来自最省的标量；
+    常量时间路径对任何输入都做满。用最小值算 CT 代价得 1.72× 的假结论（真值 1.06×）。
+    判据要用**同一输入集上的均值**；最小值只用于同一输入集内过滤噪声。
+21. **`build.sh` 通配链接的前提**：`obj/*_<suf>.o` 要求同变体所有 `.o` 用**同一组宏**编译，
+    否则 `.c` 的 `#if` 与所链接对象不一致——轻则打印内核名不符，重则链接期缺符号
+    （`SMC_SM2_PEER_TABLE` 即因此暴露该缺陷；已把变体宏集中为 `M_REF/M_OPT/...` 变量）。
+22. **`sm2_keygen(d,pub,NULL)` 是确定性的**（固定 DRBG 种子）：连续两次调用返回**同一密钥对**。
+    测试要"两个不同参与方"时必须 `trand(d,32) + sm2_pub_from_priv(pub,d)`——否则 ECDH 一致性
+    测试等于自比，"错表 fail-closed"测试也会因"错表其实是对表"而失效（本项目两处都踩过）。
+23. **对外部基线的公平性**：GmSSL 的 `sm2_do_sign` 每次签名向**系统 CSPRNG** 取 k
     （Windows 上约 455k cycles / 137µs），本库用 HMAC-SM3 派生 nonce。直接比 sign 会高估本库
     （1.97× vs 扣除后 1.52×）——熵源开销必须单列成行，让读者可扣除
