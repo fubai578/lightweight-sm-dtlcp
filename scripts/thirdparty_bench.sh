@@ -17,7 +17,16 @@ ROOT=$(pwd)
 CC=${CC:-gcc}
 GMSSL_VER=3.1.1
 CACHE=${GMSSL_CACHE:-obj/thirdparty}
-SRC=${GMSSL_DIR:-$CACHE/GmSSL-$GMSSL_VER}
+# GMSSL_DIR 只在目录确实存在时才采用；否则（含拼错路径、临时目录被清理）回退到缓存目录并自动下载，
+# 避免"用不存在的路径去找源码"这种自找的失败
+if [ -n "$GMSSL_DIR" ] && [ -d "$GMSSL_DIR/src" ]; then
+  SRC=$GMSSL_DIR
+else
+  if [ -n "$GMSSL_DIR" ]; then
+    echo "提示：GMSSL_DIR=$GMSSL_DIR 下没有 GmSSL 源码，回退到缓存目录 $CACHE"
+  fi
+  SRC=$CACHE/GmSSL-$GMSSL_VER
+fi
 OUT=bin/thirdparty_compare.md
 
 case "$(uname -s)" in
