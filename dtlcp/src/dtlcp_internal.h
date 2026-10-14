@@ -40,7 +40,8 @@ typedef struct {
 
 struct dtlcp_ctx {
     int      role, mode, state;
-    uint16_t suite;
+    uint16_t suite;       /* 当前生效套件（服务端 = 客户端提议，须与 suite_cfg 一致） */
+    uint16_t suite_cfg;   /* 本端配置的套件（白名单基准） */
     int      established;
 
     dtlcp_io io;
@@ -105,7 +106,7 @@ void dtlcp_rec_init_tx(dtlcp_rec *r, uint16_t suite, const uint8_t mac_key[32],
                        const uint8_t key[16], const uint8_t iv_prefix[8]);
 void dtlcp_rec_init_rx(dtlcp_rec *r, uint16_t suite, const uint8_t mac_key[32],
                        const uint8_t key[16], const uint8_t iv_prefix[8]);
-/* 保护一个记录：out 需 len + 64 字节 */
+/* 保护一个记录：out 需 len + 77 字节（13 头 + 16 IV + 32 MAC + 16 填充；CTR 套件更少） */
 int  dtlcp_rec_protect(dtlcp_rec *r, uint8_t type,
                        const uint8_t *in, size_t len,
                        uint8_t *out, size_t *olen, uint64_t now_us);

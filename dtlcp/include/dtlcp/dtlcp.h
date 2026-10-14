@@ -70,6 +70,7 @@ extern "C" {
 #define DTLCP_E_REPLAY     -6
 #define DTLCP_E_STATE      -7
 #define DTLCP_E_NOSUPPORT  -8
+#define DTLCP_E_NORNG      -9   /* 未提供熵源且未显式允许确定性 RNG */
 
 /* 紧凑证书（X.509 映射约束见 docs/02 §4.4） */
 typedef struct {
@@ -139,9 +140,11 @@ typedef struct {
     /* 会话恢复 */
     dtlcp_session *resume;                /* 客户端携带 / 服务端缓存命中 */
 
-    /* 熵源（生产必须接 TRNG；为 NULL 时退化为确定性 DRBG，仅供测试） */
+    /* 熵源（生产必须接 TRNG）。entropy = NULL 时**默认拒绝握手**（fail-closed）：
+       确定性 DRBG 分支只用于测试/演示，须由 allow_deterministic_rng 显式开启。 */
     smc_entropy_fn entropy;
     void          *entropy_user;
+    int            allow_deterministic_rng;   /* 仅测试/演示置 1；生产必须为 0 */
 } dtlcp_cfg;
 
 /* 内部上下文（大小固定，无动态内存） */

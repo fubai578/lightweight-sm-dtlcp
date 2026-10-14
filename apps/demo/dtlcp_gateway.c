@@ -81,6 +81,7 @@ int main(int argc, char **argv)
     memcpy(cfg.privkey, pki.gw_priv, 32);
     cfg.ca_cert = pki.ca_cert;
     cfg.verify_peer = 1;
+    cfg.allow_deterministic_rng = 1;   /* 演示程序无 TRNG：显式开启确定性 DRBG */
     cfg.psk = psk;
     cfg.psk_len = 32;
     cfg.resume = (mode == DTLCP_MODE_RESUME) ? &sess : NULL;

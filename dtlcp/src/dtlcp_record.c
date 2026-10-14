@@ -2,10 +2,15 @@
  * dtlcp_record.c — DTLCP 记录层：数据报保护/解保护 + 防重放
  *
  * 记录布局（单记录 = 单 UDP 数据报，或一个数据报内多记录拼接）：
- *   type(1) | ver(2) | epoch(2) | seq(6) | [iv(16)] | payload | [mac(32)]
+ *   type(1) | ver(2) | epoch(2) | seq(6) | len(2) | [iv(16)] | payload | [mac(32)]
  *   - CBC 套件（MAC-then-encrypt）：iv 随记录携带，payload = SM4-CBC(plain‖mac‖pad)
  *   - CTR 套件（Encrypt-then-MAC） ：无 iv 段，payload = SM4-CTR(plain)，mac 尾随
  * 防重放：epoch + 48bit 序列号 + 64 位滑动窗口（MAC 验证通过后才推进窗口）
+ *
+ * CTR 计数器块布局（唯一性依据，改动前请读 crypto/include/smc/sm4.h 的 sm4_ctr_xor_n）：
+ *   iv_prefix(8) | 记录序号 seq(6) | 块计数(2)      ← 只有块计数自增
+ *   记录序号必须留在自增域之外：否则记录 s 的第 n 块与记录 s+n 的第 1 块会共用
+ *   密钥流（two-time pad，可由已知明文直接恢复其余记录）。
  */
 #include <string.h>
 #include "dtlcp_internal.h"
@@ -90,6 +95,16 @@ static void derive_iv(const uint8_t prefix[8], const uint8_t seqb[8], uint8_t iv
     memcpy(iv, h, 16);
 }
 
+/* CTR 计数器块 = iv_prefix(8) ‖ 记录序号 seq(6) ‖ 块计数(2)。
+   只有末 2 字节（块计数）参与自增：块数上限 65536 × 16B ≫ 单记录长度。 */
+static void derive_ctr(const dtlcp_rec *r, const uint8_t seqb[8], uint8_t ctr[16])
+{
+    memcpy(ctr, r->iv_prefix, 8);
+    memcpy(ctr + 8, seqb + 2, 6);      /* 48 位序号（epoch 恒为 0，见 unprotect 校验） */
+    ctr[14] = 0;
+    ctr[15] = 0;
+}
+
 static void rec_init(dtlcp_rec *r, uint16_t suite, const uint8_t mac_key[32],
                      const uint8_t key[16], const uint8_t iv_prefix[8])
 {
@@ -134,9 +149,8 @@ int dtlcp_rec_protect(dtlcp_rec *r, uint8_t type,
     if (r->etm) {
         uint8_t ctr[16];
         put_be16(out + 11, (uint16_t)len);       /* payload_len */
-        memcpy(ctr, r->iv_prefix, 8);
-        memcpy(ctr + 8, seqb, 8);
-        sm4_ctr_xor(&r->cipher, ctr, in, out + o, len);
+        derive_ctr(r, seqb, ctr);
+        sm4_ctr_xor_n(&r->cipher, ctr, 2, in, out + o, len);   /* 只自增块计数 */
         mac_compute(r->mac_key, seqb, type, (uint16_t)len, out + o, out + o + len);
         o += len + DTLCP_MAC_LEN;
     } else {
@@ -184,7 +198,10 @@ int dtlcp_rec_unprotect(dtlcp_rec *r, const uint8_t *in, size_t len,
         if (r->etm) {
             if (len < (size_t)declared + o + DTLCP_MAC_LEN) return DTLCP_E_FORMAT;
         } else {
-            if (len < (size_t)declared + o) return DTLCP_E_FORMAT;
+            /* CBC 记录 = 头(13) + IV(16) + 密文(declared)。
+               必须把 IV 计入下限，否则密文可声明得比实际数据长，
+               解密会读到调用方给定长度之外（越界读）。 */
+            if (len < (size_t)declared + o + DTLCP_IV_LEN) return DTLCP_E_FORMAT;
         }
     }
     if (r->etm) {
@@ -196,9 +213,8 @@ int dtlcp_rec_unprotect(dtlcp_rec *r, const uint8_t *in, size_t len,
             int rr = replay_update(r, seq);
             uint8_t ctr[16];
             if (rr != 0) return rr;
-            memcpy(ctr, r->iv_prefix, 8);
-            memcpy(ctr + 8, seqb, 8);
-            sm4_ctr_xor(&r->cipher, ctr, in + o, out, ctlen);
+            derive_ctr(r, seqb, ctr);
+            sm4_ctr_xor_n(&r->cipher, ctr, 2, in + o, out, ctlen);   /* 只自增块计数 */
             *olen = ctlen;
         }
         *consumed = o + ctlen + DTLCP_MAC_LEN;

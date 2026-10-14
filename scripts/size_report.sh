@@ -85,6 +85,6 @@ build_one trim-min    "最小 RAM/Flash：SMALL+TINY 内核 + 裁 ENC/CBC + 关 
 build_one ct-nocomb   "常量时间 + **关** comb 表（改造前的 CT 形态）：量化\"用表与 CT 结合\"省下的代价"                       -DSMC_SM2_CT=1 -DSMC_SM2_FIXED_TABLE=0
 build_one peer-off    "关对端公钥预计算表（SMC_SM2_PEER_TABLE=0）：量化该特性的 Flash 代价"                       -DSMC_SM2_PEER_TABLE=0
 build_one tiny-stack  "全功能 + SM3 TINY 滚动调度核（最小栈）" -DSMC_SM3_KERNEL=3
-build_one ct-const    "常量时间标量乘（SMC_SM2_CT=1；comb 表按设计自动禁用）" -DSMC_SM2_CT=1
+build_one ct-const    "常量时间标量乘（SMC_SM2_CT=1，**含** comb 表：全表扫描选表）" -DSMC_SM2_CT=1
 
 echo "结果已写入 $OUT"

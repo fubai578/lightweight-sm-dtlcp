@@ -183,6 +183,7 @@ static void run_e2e(const char *name, const pki_t *pki, const mode_cfg_t *mc)
     memcpy(job.cfg.privkey, pki->srv_priv, 32);
     job.cfg.ca_cert = pki->ca_cert;
     job.cfg.verify_peer = mc->verify_peer;
+    job.cfg.allow_deterministic_rng = 1;
     job.cfg.psk = mc->psk;
     job.cfg.psk_len = mc->psk_len;
     job.cfg.resume = (dtlcp_session *)mc->srv_sess;
@@ -196,6 +197,7 @@ static void run_e2e(const char *name, const pki_t *pki, const mode_cfg_t *mc)
     memcpy(ccfg.privkey, pki->cli_priv, 32);
     ccfg.ca_cert = pki->ca_cert;
     ccfg.verify_peer = mc->verify_peer;
+    ccfg.allow_deterministic_rng = 1;
     ccfg.psk = mc->psk;
     ccfg.psk_len = mc->psk_len;
     ccfg.early_data = mc->early;
@@ -283,6 +285,7 @@ int main(void)
         job.cfg.cert = pki.srv_cert;
         memcpy(job.cfg.privkey, pki.srv_priv, 32);
         job.cfg.ca_cert = pki.ca_cert;
+        job.cfg.allow_deterministic_rng = 1;
         pthread_create(&th, NULL, server_thread, &job);
 
         memset(&ccfg, 0, sizeof ccfg);
@@ -293,6 +296,7 @@ int main(void)
         ccfg.cert = pki.cli_cert;
         memcpy(ccfg.privkey, pki.cli_priv, 32);
         ccfg.ca_cert = pki.ca_cert;
+        ccfg.allow_deterministic_rng = 1;
         cio.send = pipe_send; cio.recv = pipe_recv; cio.user = &cend;
         rc = dtlcp_connect(&cctx, &ccfg, &cio, 3100);
         if (rc == 0) {
@@ -329,6 +333,45 @@ int main(void)
     mc.msg = "hello-dtlcp-psk";
     mc.check_early = 1;
     run_e2e("PSK 握手 + 0-RTT 早期数据", &pki, &mc);
+
+    printf("配置防误用:");
+    putchar(10);
+    {
+        /* 三类必须在握手前就被拒绝的配置（fail-closed，不需要对端） */
+        dtlcp_ctx xctx;
+        dtlcp_cfg xcfg;
+        dtlcp_io xio;
+        pipe_t pipe;
+        pipe_end_t xend = { &pipe, 0 };
+
+        pipe_init(&pipe);
+        xio.send = pipe_send; xio.recv = pipe_recv; xio.user = &xend;
+
+        memset(&xcfg, 0, sizeof xcfg);
+        xcfg.role = DTLCP_ROLE_CLIENT;
+        xcfg.mode = DTLCP_MODE_FULL;
+        xcfg.suite = DTLCP_SUITE_L_SM2_SM4_CTR_SM3;
+        xcfg.identity = "sensor-node-01";
+        xcfg.cert = pki.cli_cert;
+        memcpy(xcfg.privkey, pki.cli_priv, 32);
+        xcfg.ca_cert = pki.ca_cert;
+        /* 无熵源 + 未显式允许 -> 必须拒绝（否则静默使用确定性密钥） */
+        ok(dtlcp_connect(&xctx, &xcfg, &xio, 5000) == DTLCP_E_NORNG,
+           "无熵源且未显式允许确定性 RNG 被拒绝（fail-closed）");
+
+        xcfg.allow_deterministic_rng = 1;
+        {   /* 未知套件 -> 拒绝（不得当作 EtM 处理） */
+            dtlcp_cfg u = xcfg;
+            u.suite = 0x9999;
+            ok(dtlcp_connect(&xctx, &u, &xio, 5000) == DTLCP_E_NOSUPPORT, "未知套件被拒绝");
+        }
+        {   /* 模式与套件不匹配 -> 拒绝（PSK 模式配 ECDHE 套件） */
+            dtlcp_cfg u = xcfg;
+            u.mode = DTLCP_MODE_PSK;
+            ok(dtlcp_connect(&xctx, &u, &xio, 5000) == DTLCP_E_NOSUPPORT,
+               "模式与套件不匹配被拒绝");
+        }
+    }
 
     printf("记录层负向:\n");
     {
@@ -394,7 +437,7 @@ int main(void)
             dtlcp_rec_init_tx(&tx, DTLCP_SUITE_ECDHE_SM4_CBC_SM3, mac, key, ivp);
             dtlcp_rec_init_rx(&rxr, DTLCP_SUITE_ECDHE_SM4_CBC_SM3, mac, key, ivp);
             dtlcp_rec_protect(&tx, DTLCP_RT_HANDSHAKE, plain, 48, joined, &c1, 0);
-            dtlcp_rec_protect(&tx, DTLCP_RT_CCS, (const uint8_t*)"", 1, joined + c1, &olen, 0);
+            dtlcp_rec_protect(&tx, DTLCP_RT_CCS, (const uint8_t*)"", 1, joined + c1, &olen, 0);
             off = c1 + olen;
             rc = dtlcp_rec_unprotect(&rxr, joined, off, out, sizeof out, &plen, &type, &consumed);
             ok(rc == DTLCP_OK && consumed == c1 && type == DTLCP_RT_HANDSHAKE && plen == 48,
@@ -406,14 +449,64 @@ int main(void)
             dtlcp_rec_init_tx(&tx, DTLCP_SUITE_ECDHE_SM4_CBC_SM3, mac, key, ivp);
             dtlcp_rec_init_rx(&rxr, DTLCP_SUITE_ECDHE_SM4_CBC_SM3, mac, key, ivp);
             dtlcp_rec_protect(&tx, DTLCP_RT_APPDATA, plain, 48, rec, &olen, 0);
-            printf("[dbg] rec olen=%zu hdr=%02x%02x%02x lenfld=%02x%02x iv=%02x%02x%02x%02x; ",
-                   olen, rec[0], rec[1], rec[2], rec[11], rec[12], rec[13], rec[14], rec[15], rec[16]);
             rc = dtlcp_rec_unprotect(&rxr, rec, olen, out, sizeof out, &plen, &type, &consumed);
             ok(rc == DTLCP_OK && plen == 48 && memcmp(out, plain, 48) == 0,
                "CBC 套件（MAC-then-encrypt）往返");
             rec[20] ^= 0x80;
             rc = dtlcp_rec_unprotect(&rxr, rec, olen, out, sizeof out, &plen, &type, &consumed);
             ok(rc != DTLCP_OK, "CBC 套件篡改被拒绝");
+        }
+
+        {
+            /* 输入长度下限必须含 IV：少 16 字节（恰为 IV 长度）时密文并未装齐，
+               正确实现须按格式错拒绝；否则解密会读到调用方给定长度之外（越界读）。 */
+            dtlcp_rec cbtx, cbrx;
+            uint8_t pre[48], r2[512], o2[512];
+            size_t l2;
+            int k;
+            for (k = 0; k < 48; k++) pre[k] = (uint8_t)(0x70 + k);
+            dtlcp_rec_init_tx(&cbtx, DTLCP_SUITE_ECDHE_SM4_CBC_SM3, mac, key, ivp);
+            dtlcp_rec_init_rx(&cbrx, DTLCP_SUITE_ECDHE_SM4_CBC_SM3, mac, key, ivp);
+            rc = dtlcp_rec_protect(&cbtx, DTLCP_RT_APPDATA, pre, 48, r2, &l2, 0);
+            ok(rc == DTLCP_OK, "CBC 记录保护（截断用例准备）");
+            rc = dtlcp_rec_unprotect(&cbrx, r2, l2 - 16, o2, sizeof o2, &plen, &type, &consumed);
+            ok(rc != DTLCP_OK, "CBC 记录长度不足（密文未装齐）被拒绝");
+        }
+
+        {
+            /* 跨记录密钥流唯一性：CTR 套件的计数器若把「记录序号」放进了自增域，
+               记录 s 的第 n 块就会与记录 s+n 的第 1 块共用密钥流（two-time pad）。
+               判据：同一密钥下所有记录的 C⊕P（= 密钥流块）必须互不相同。 */
+            dtlcp_rec ktx, krx;
+            uint8_t ks[26 * 2][16];
+            int nks = 0, dup = 0, round, b;
+            dtlcp_rec_init_tx(&ktx, DTLCP_SUITE_L_SM2_SM4_CTR_SM3, mac, key, ivp);
+            for (round = 0; round < 26 && !dup; round++) {
+                uint8_t p32[32], r3[256], o3[256];
+                size_t l3, pl3, cs3;
+                uint8_t ty3;
+                int i;
+                for (i = 0; i < 32; i++) p32[i] = (uint8_t)(round * 11 + i);
+                if (dtlcp_rec_protect(&ktx, DTLCP_RT_APPDATA, p32, 32, r3, &l3, 0) != DTLCP_OK) {
+                    dup = 1;
+                    break;
+                }
+                /* 记录本身必须自洽：用同密钥解保护一次（每条记录单独初始化 rx，避免窗口干扰） */
+                dtlcp_rec_init_rx(&krx, DTLCP_SUITE_L_SM2_SM4_CTR_SM3, mac, key, ivp);
+                if (dtlcp_rec_unprotect(&krx, r3, l3, o3, sizeof o3, &pl3, &ty3, &cs3) != DTLCP_OK
+                    || pl3 != 32) { dup = 1; break; }
+                for (b = 0; b < 2; b++) {
+                    uint8_t blk[16];
+                    int j;
+                    for (i = 0; i < 16; i++)
+                        blk[i] = (uint8_t)(r3[DTLCP_HDR_LEN + b * 16 + i] ^ p32[b * 16 + i]);
+                    for (j = 0; j < nks; j++) if (memcmp(ks[j], blk, 16) == 0) { dup = 1; break; }
+                    if (dup) break;
+                    memcpy(ks[nks++], blk, 16);
+                }
+            }
+            ok(!dup && nks == 26 * 2,
+               "CTR 密钥流块在会话内唯一（跨记录无 two-time pad）");
         }
     }
 

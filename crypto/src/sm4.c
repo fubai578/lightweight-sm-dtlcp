@@ -315,24 +315,37 @@ void sm4_cbc_decrypt(const sm4_ctx *ctx, uint8_t iv[16],
 
 #if SMC_SM4_MODE_CTR
 
-void sm4_ctr_xor(const sm4_ctx *ctx, uint8_t ctr[16],
-                 const uint8_t *in, uint8_t *out, size_t len)
+/* 计数器自增：只动末尾 inc_bytes 字节（大端、进位不回卷到更高字节） */
+static void sm4_ctr_inc(uint8_t ctr[SMC_SM4_BLOCK], unsigned inc_bytes)
+{
+    int i;
+    for (i = (int)SMC_SM4_BLOCK - 1; i >= (int)(SMC_SM4_BLOCK - inc_bytes); i--) {
+        if (++ctr[i] != 0) break;
+    }
+}
+
+void sm4_ctr_xor_n(const sm4_ctx *ctx, uint8_t ctr[SMC_SM4_BLOCK], unsigned inc_bytes,
+                   const uint8_t *in, uint8_t *out, size_t len)
 {
     uint8_t ks[SMC_SM4_BLOCK];
     size_t off = 0;
     int i;
 
+    if (inc_bytes == 0 || inc_bytes > SMC_SM4_BLOCK) inc_bytes = SMC_SM4_BLOCK;
     while (off < len) {
         size_t n = len - off;
         if (n > SMC_SM4_BLOCK) n = SMC_SM4_BLOCK;
         sm4_encrypt_block(ctx, ctr, ks);
-        for (i = 0; i < 16 && (size_t)i < n; i++) out[off + i] = in[off + i] ^ ks[i];
-        /* 计数器大端递增（低 8 字节） */
-        for (i = 15; i >= 8; i--) {
-            if (++ctr[i] != 0) break;
-        }
+        for (i = 0; i < SMC_SM4_BLOCK && (size_t)i < n; i++) out[off + i] = in[off + i] ^ ks[i];
+        sm4_ctr_inc(ctr, inc_bytes);
         off += n;
     }
+}
+
+void sm4_ctr_xor(const sm4_ctx *ctx, uint8_t ctr[SMC_SM4_BLOCK],
+                 const uint8_t *in, uint8_t *out, size_t len)
+{
+    sm4_ctr_xor_n(ctx, ctr, 8, in, out, len);   /* 默认：低 64 位整体自增 */
 }
 
 #endif /* SMC_SM4_MODE_CTR */

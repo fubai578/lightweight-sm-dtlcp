@@ -17,6 +17,7 @@
 #include "dtlcp_internal.h"
 
 static void save_session(dtlcp_ctx *c);   /* 前向声明（定义见文末） */
+static int  suite_known(uint16_t s);      /* 前向声明（定义见文末「公共入口」） */
 
 /* ================= 编码辅助 ================= */
 static void p_u8(uint8_t **p, uint8_t v) { *(*p)++ = v; }
@@ -209,6 +210,8 @@ static int parse_client_hello(dtlcp_ctx *c, const uint8_t *in, size_t len)
     if (nsuite == 0 || p + 2u * nsuite > end) return DTLCP_E_FORMAT;
     c->suite = g_u16(&p);
     while (--nsuite) (void)g_u16(&p);
+    /* 服务端白名单：未知套件、或与本端配置不符一律拒绝（防套件降级/混淆） */
+    if (!suite_known(c->suite) || c->suite != c->suite_cfg) return DTLCP_E_NOSUPPORT;
     if (flags & HF_KEYSHARE) {
         if (p + SMC_SM2_PUBKEY > end) return DTLCP_E_FORMAT;
         memcpy(c->peer_eph_pub, g_bytes(&p, SMC_SM2_PUBKEY), SMC_SM2_PUBKEY);
@@ -957,11 +960,33 @@ void dtlcp_init(dtlcp_ctx *ctx)
     sm3_init(&ctx->hs_hash);
 }
 
+/* 已知套件白名单（未知/自创套件一律拒绝，避免把未知值当作 EtM 处理） */
+static int suite_known(uint16_t s)
+{
+    return s == DTLCP_SUITE_ECDHE_SM4_CBC_SM3 ||
+           s == DTLCP_SUITE_L_SM2_SM4_CTR_SM3 ||
+           s == DTLCP_SUITE_L_PSK_SM4_CTR_SM3;
+}
+
+/* 配置合法性：套件已知且与模式匹配；无熵源时默认拒绝（fail-closed） */
+static int cfg_check(const dtlcp_ctx *c, const dtlcp_cfg *cfg)
+{
+    if (!suite_known(c->suite)) return DTLCP_E_NOSUPPORT;
+    if (cfg->mode == DTLCP_MODE_PSK) {
+        if (c->suite != DTLCP_SUITE_L_PSK_SM4_CTR_SM3) return DTLCP_E_NOSUPPORT;
+    } else if (c->suite == DTLCP_SUITE_L_PSK_SM4_CTR_SM3) {
+        return DTLCP_E_NOSUPPORT;
+    }
+    if (!c->entropy_fn && !cfg->allow_deterministic_rng) return DTLCP_E_NORNG;
+    return DTLCP_OK;
+}
+
 static void cfg_copy(dtlcp_ctx *c, const dtlcp_cfg *cfg, uint64_t now_us)
 {
     c->role = cfg->role;
     c->mode = cfg->mode;
     c->suite = cfg->suite ? cfg->suite : DTLCP_SUITE_L_SM2_SM4_CTR_SM3;
+    c->suite_cfg = c->suite;
     c->now_us = now_us;
     if (cfg->identity) {
         size_t n = strlen(cfg->identity);
@@ -987,9 +1012,12 @@ static void cfg_copy(dtlcp_ctx *c, const dtlcp_cfg *cfg, uint64_t now_us)
 
 int dtlcp_connect(dtlcp_ctx *ctx, const dtlcp_cfg *cfg, dtlcp_io *io, uint64_t now_us)
 {
+    int rc;
     dtlcp_init(ctx);
     cfg_copy(ctx, cfg, now_us);
     ctx->io = *io;
+    rc = cfg_check(ctx, cfg);
+    if (rc != DTLCP_OK) return rc;
     switch (cfg->mode) {
     case DTLCP_MODE_FULL:
         return client_full(ctx);
@@ -1006,9 +1034,12 @@ int dtlcp_connect(dtlcp_ctx *ctx, const dtlcp_cfg *cfg, dtlcp_io *io, uint64_t n
 
 int dtlcp_accept(dtlcp_ctx *ctx, const dtlcp_cfg *cfg, dtlcp_io *io, uint64_t now_us)
 {
+    int rc;
     dtlcp_init(ctx);
     cfg_copy(ctx, cfg, now_us);
     ctx->io = *io;
+    rc = cfg_check(ctx, cfg);
+    if (rc != DTLCP_OK) return rc;
     switch (cfg->mode) {
     case DTLCP_MODE_FULL:
         return server_full(ctx);

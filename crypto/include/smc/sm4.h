@@ -36,6 +36,12 @@ void sm4_cbc_decrypt(const sm4_ctx *ctx, uint8_t iv[SMC_SM4_BLOCK],
 /* 流式 CTR：ctr[16] 为完整计数器块（大端，最后 8 字节递增），就地/离地异或 */
 void sm4_ctr_xor(const sm4_ctx *ctx, uint8_t ctr[SMC_SM4_BLOCK],
                  const uint8_t *in, uint8_t *out, size_t len);
+
+/* 同上，但只自增末尾 inc_bytes 字节（1..8），其余字节在所有块间保持不变。
+ * 供调用方把「记录序号」这类跨记录唯一化字段放在自增域**之外**：一旦自增跨过
+ * 序号，记录 s 的第 n 块就会与记录 s+n 的第 1 块共用密钥流（two-time pad）。 */
+void sm4_ctr_xor_n(const sm4_ctx *ctx, uint8_t ctr[SMC_SM4_BLOCK], unsigned inc_bytes,
+                   const uint8_t *in, uint8_t *out, size_t len);
 #endif
 
 #ifdef __cplusplus

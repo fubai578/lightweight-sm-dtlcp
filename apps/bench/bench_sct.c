@@ -6,12 +6,16 @@
  *   ② 基点 sm2_scalarmult_base —— 固定基点 k·G（签名 R、公钥派生；OPT 走 comb 预计算表）
  * 只测路径①会漏掉签名的主路径，故两条都测。
  *
- * 两个指标：
+ * 三个指标：
  *  ① 操作计数（确定性、可复现）：统计不同 nonce 下的倍点/点加次数。
  *     判据：变时间构建（窗口/wNAF/查表 comb）的加法次数随 nonce 变化 → 存在执行路径泄漏面；
  *           常量时间构建（全表扫描）应**完全恒定**（访存与运算次数不随秘密变化）。
- *  ② 时间方差（辅助）：交错采样（外层轮次、内层输入）后取每输入最小值，
- *     规避 CPU 频率漂移；host 环境噪声地板较大，结论以指标①为准。
+ *  ② 域乘次数（确定性、可复现）：实际执行的域乘法总数 = **真实工作量**。
+ *     只数 ① 会漏判：点运算若对「无穷远」提前返回，被跳过的域乘仍会被计成一笔点加，
+ *     于是计数恒定而工作量随秘密变化（本项目曾因此漏掉一处真实泄漏）。
+ *     CT 构建下 ① 与 ② 都必须恒定。
+ *  ③ 时间方差（辅助）：交错采样（外层轮次、内层输入）后取每输入最小值，
+ *     规避 CPU 频率漂移；host 环境噪声地板较大，结论以指标 ①/② 为准。
  *
  * 构建：SMC_SM2_OPCOUNT=1 提供计数器；SMC_SM2_CT=1 切换常量时间路径。
  */
@@ -22,7 +26,7 @@
 #include "sm2_internal.h"
 
 #if defined(SMC_SM2_OPCOUNT) && SMC_SM2_OPCOUNT
-extern uint64_t sm2_op_dbl, sm2_op_add;
+extern uint64_t sm2_op_dbl, sm2_op_add, sm2_op_mul;
 #define HAVE_COUNT 1
 #else
 #define HAVE_COUNT 0
@@ -102,18 +106,19 @@ static int sweep_mode(uint32_t n)
     return 2;
 #else
     uint32_t st = 0x51ED1234u;
-    uint32_t amin[2], amax[2], dmin[2], dmax[2];
+    uint32_t amin[2], amax[2], dmin[2], dmax[2], mmin[2], mmax[2];
     uint32_t t;
     int p, bad = 0;
 
     for (p = 0; p < 2; p++) {
         amin[p] = 0xFFFFFFFFu; amax[p] = 0;
         dmin[p] = 0xFFFFFFFFu; dmax[p] = 0;
+        mmin[p] = 0xFFFFFFFFu; mmax[p] = 0;
     }
 
     for (t = 0; t < n; t++) {
         sm2_fe k;
-        uint32_t ca[2], cd[2];
+        uint32_t ca[2], cd[2], cm[2];
         int b;
 
         if (t == 0) {                       /* 边界 1：n−1（最大合法标量） */
@@ -132,6 +137,17 @@ static int sweep_mode(uint32_t n)
             for (b = 0; b < 32; b++) nb[b] = 0xFF;
             nb[0] = 0x7F;
             sm2_fe_from_bytes(&k, nb);
+        } else if (t == 3) {                /* 边界 4：k = 1（窗口几乎全空，最易暴露
+                                               "工作量随前导空窗口变化"的泄漏） */
+            uint8_t nb[32];
+            for (b = 0; b < 32; b++) nb[b] = 0;
+            nb[31] = 1;
+            sm2_fe_from_bytes(&k, nb);
+        } else if (t == 4) {                /* 边界 5：稀疏 0x0000…0002（除末位外全空） */
+            uint8_t nb[32];
+            for (b = 0; b < 32; b++) nb[b] = 0;
+            nb[31] = 2;
+            sm2_fe_from_bytes(&k, nb);
         } else {                            /* 随机（高位清零保证 < n） */
             uint8_t rb[32];
             trand(rb, 32, &st);
@@ -140,41 +156,44 @@ static int sweep_mode(uint32_t n)
         }
 
         for (p = 0; p < 2; p++) {
-            uint32_t a0 = sm2_op_dbl = 0;
-            (void)a0;
-            sm2_op_add = 0;
+            sm2_op_dbl = sm2_op_add = sm2_op_mul = 0;
             run_path(&k, p == 1);
             ca[p] = (uint32_t)sm2_op_add;
             cd[p] = (uint32_t)sm2_op_dbl;
+            cm[p] = (uint32_t)sm2_op_mul;
         }
         for (p = 0; p < 2; p++) {
             if (ca[p] < amin[p]) amin[p] = ca[p];
             if (ca[p] > amax[p]) amax[p] = ca[p];
             if (cd[p] < dmin[p]) dmin[p] = cd[p];
             if (cd[p] > dmax[p]) dmax[p] = cd[p];
+            if (cm[p] < mmin[p]) mmin[p] = cm[p];
+            if (cm[p] > mmax[p]) mmax[p] = cm[p];
         }
     }
 
     printf("### 大样本运算次数扫描（%u 个标量：随机 + n−1 / 稀疏 / 高位全1 边界）\n\n", n);
-    printf("| 标量乘路径 | 点加 最小/最大/极差 | 倍点 最小/最大/极差 | 判定 |\n");
-    printf("|---|---|---|---|\n");
+    printf("| 标量乘路径 | 点加 最小/最大/极差 | 倍点 最小/最大/极差 | 域乘 最小/最大/极差 | 判定 |\n");
+    printf("|---|---|---|---|---|\n");
     for (p = 0; p < 2; p++) {
-        printf("| %s | %u / %u / %u | %u / %u / %u | %s |\n",
+        printf("| %s | %u / %u / %u | %u / %u / %u | %u / %u / %u | %s |\n",
                path_name(p == 1), amin[p], amax[p], amax[p] - amin[p],
                dmin[p], dmax[p], dmax[p] - dmin[p],
-               (amax[p] == amin[p] && dmax[p] == dmin[p]) ? "**恒定**" : "**随秘密变化**");
+               mmin[p], mmax[p], mmax[p] - mmin[p],
+               (amax[p] == amin[p] && dmax[p] == dmin[p] && mmax[p] == mmin[p])
+                   ? "**恒定**" : "**随秘密变化**");
     }
     printf("\n");
 #if SMC_SM2_CT
     for (p = 0; p < 2; p++) {
-        if (amax[p] != amin[p] || dmax[p] != dmin[p]) {
-            printf("判定：**不通过** — CT 构建下 %s 的运算次数出现变动（极差非 0）\n",
+        if (amax[p] != amin[p] || dmax[p] != dmin[p] || mmax[p] != mmin[p]) {
+            printf("判定：**不通过** — CT 构建下 %s 的运算次数/工作量出现变动（极差非 0）\n",
                    path_name(p == 1));
             bad = 1;
         }
     }
     if (!bad) {
-        printf("判定：**通过** — CT 构建下两条路径在 %u 个标量上运算次数完全恒定\n", n);
+        printf("判定：**通过** — CT 构建下两条路径在 %u 个标量上运算次数与实际工作量均完全恒定\n", n);
     }
 #else
     if (amax[0] == amin[0] && dmax[0] == dmin[0]) {
@@ -192,7 +211,7 @@ int main(int argc, char **argv)
 {
     static uint8_t nonces[N_IN][32];
     static uint64_t tmin[2][N_IN];
-    static uint32_t add_cnt[2][N_IN], dbl_cnt[2][N_IN];
+    static uint32_t add_cnt[2][N_IN], dbl_cnt[2][N_IN], mul_cnt[2][N_IN];
     uint32_t st = 0xC0FFEE01u;
     int i, p, sweep = 0;
 
@@ -230,43 +249,48 @@ int main(int argc, char **argv)
         for (i = 0; i < N_IN; i++) {
             sm2_fe k;
             sm2_fe_from_bytes(&k, nonces[i]);
-            sm2_op_dbl = 0;
-            sm2_op_add = 0;
+            sm2_op_dbl = sm2_op_add = sm2_op_mul = 0;
             run_path(&k, p == 1);
             dbl_cnt[p][i] = (uint32_t)sm2_op_dbl;
             add_cnt[p][i] = (uint32_t)sm2_op_add;
+            mul_cnt[p][i] = (uint32_t)sm2_op_mul;
         }
     }
-    printf("#### 指标①：操作计数（%d 个 nonce，含随机与极端值）\n\n", N_IN);
-    printf("| 标量乘路径 | 点加 最小/最大/极差 | 倍点 最小/最大/极差 | 判定 |\n");
-    printf("|---|---|---|---|\n");
+    printf("#### 指标①/②：运算次数与工作量（%d 个 nonce，含随机与极端值）\n\n", N_IN);
+    printf("| 标量乘路径 | 点加 最小/最大/极差 | 倍点 最小/最大/极差 | 域乘 最小/最大/极差 | 判定 |\n");
+    printf("|---|---|---|---|---|\n");
     for (p = 0; p < 2; p++) {
         uint32_t amin = add_cnt[p][0], amax = add_cnt[p][0];
         uint32_t dmin = dbl_cnt[p][0], dmax = dbl_cnt[p][0];
+        uint32_t mmin = mul_cnt[p][0], mmax = mul_cnt[p][0];
         for (i = 1; i < N_IN; i++) {
             if (add_cnt[p][i] < amin) amin = add_cnt[p][i];
             if (add_cnt[p][i] > amax) amax = add_cnt[p][i];
             if (dbl_cnt[p][i] < dmin) dmin = dbl_cnt[p][i];
             if (dbl_cnt[p][i] > dmax) dmax = dbl_cnt[p][i];
+            if (mul_cnt[p][i] < mmin) mmin = mul_cnt[p][i];
+            if (mul_cnt[p][i] > mmax) mmax = mul_cnt[p][i];
         }
-        printf("| %s | %u / %u / %u | %u / %u / %u | %s |\n",
+        printf("| %s | %u / %u / %u | %u / %u / %u | %u / %u / %u | %s |\n",
                path_name(p == 1),
                amin, amax, amax - amin, dmin, dmax, dmax - dmin,
-               (amax == amin && dmax == dmin)
+               mmin, mmax, mmax - mmin,
+               (amax == amin && dmax == dmin && mmax == mmin)
                    ? "**恒定** — 执行路径与秘密无关"
                    : "**随秘密变化** — 存在可被时序/功耗观测的执行路径差异");
     }
-    printf("\n| 极端 nonce | 通用 add / dbl | 基点 add / dbl |\n|---|---|---|\n");
+    printf("\n| 极端 nonce | 通用 add / dbl / mul | 基点 add / dbl / mul |\n|---|---|---|\n");
     for (i = N_IN - 2; i < N_IN; i++) {
-        printf("| %s | %u / %u | %u / %u |\n",
+        printf("| %s | %u / %u / %u | %u / %u / %u |\n",
                (i == N_IN - 2) ? "n−1" : "稀疏 0x8000…0001",
-               add_cnt[0][i], dbl_cnt[0][i], add_cnt[1][i], dbl_cnt[1][i]);
+               add_cnt[0][i], dbl_cnt[0][i], mul_cnt[0][i],
+               add_cnt[1][i], dbl_cnt[1][i], mul_cnt[1][i]);
     }
 #else
     printf("（未启用 SMC_SM2_OPCOUNT，跳过操作计数）\n");
 #endif
 
-    /* ---- 指标② 时间方差（交错采样，辅助参考） ---- */
+    /* ---- 指标③ 时间方差（交错采样，辅助参考） ---- */
     for (p = 0; p < 2; p++)
         for (i = 0; i < N_IN; i++) tmin[p][i] = ~(uint64_t)0;
     {
@@ -285,7 +309,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    printf("\n#### 指标②：时间分布（%d 输入 x %d 轮交错采样，取每输入最小值）\n\n", N_IN, M_REP);
+    printf("\n#### 指标③：时间分布（%d 输入 x %d 轮交错采样，取每输入最小值）\n\n", N_IN, M_REP);
     printf("| 标量乘路径 | 最小 | 中位 | 最大 | 均值 | CV | 极差/均值 |\n");
     printf("|---|---|---|---|---|---|---|\n");
     for (p = 0; p < 2; p++) {
@@ -311,6 +335,6 @@ int main(int argc, char **argv)
                mean > 0 ? (double)(mx - mn) / mean : 0);
     }
     printf("\n> 注：host x86-64 存在频率漂移与调度噪声，CV 含测量噪声地板；\n");
-    printf("> 判定以指标①（确定性操作计数）为准，板上实测方法见 docs/04。\n");
+    printf("> 判定以指标①/②（确定性计数与工作量）为准，板上实测方法见 docs/04。\n");
     return 0;
 }

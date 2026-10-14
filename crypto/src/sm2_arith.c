@@ -11,15 +11,33 @@
 #include "sm2_internal.h"
 
 /* ============================ 操作计数钩子（侧信道实验） ============================ */
-/* SMC_SM2_OPCOUNT=1 时统计点运算次数：验证标量乘执行路径是否与秘密相关。
-   CT=0（wNAF/窗口，变时间）操作数随 nonce 变化；CT=1（全表扫描）应恒定。 */
+/* SMC_SM2_OPCOUNT=1 时统计点运算次数与域乘法次数：
+   ① 点加/倍点次数——标量乘的「结构」是否随秘密变化；
+   ② 域乘法次数——实际执行的**工作量**。两者必须分别看：点运算内部还有
+      「结果/操作数为无穷远」的提前返回，只数①会把被跳过的运算也计成一笔，
+      从而看不出工作量差异（本项目正是这样漏掉过一次真实泄漏）。 */
 #if defined(SMC_SM2_OPCOUNT) && SMC_SM2_OPCOUNT
-uint64_t sm2_op_dbl, sm2_op_add;
+uint64_t sm2_op_dbl, sm2_op_add, sm2_op_mul;
 #define SMC_OP_DBL() (sm2_op_dbl++)
 #define SMC_OP_ADD() (sm2_op_add++)
+#define SMC_OP_MUL() (sm2_op_mul++)
 #else
 #define SMC_OP_DBL() ((void)0)
 #define SMC_OP_ADD() ((void)0)
+#define SMC_OP_MUL() ((void)0)
+#endif
+
+/* ================= 常量时间点运算开关 =================
+ * 变时间构建保留「无穷远 / y=0」的提前返回（性能路径）。
+ * CT 构建改为**无条件算完 + 掩码选择**：提前返回会随秘密选择不同的执行路径与
+ * 不同的实际工作量（点加少做十余次域乘），而运算计数钩子看不到这一点。
+ * 唯一的例外是 h = 0（P = ±Q）退化情形仍保留分支：它要求两点的 x 坐标相等，
+ * 在标量乘路径上触发它等同于构造一个离散对数关系（或 2^-256 量级的巧合），
+ * 攻击者不可构造——见 docs/04 §3.6「常量时间口径」。 */
+#if SMC_SM2_CT && SMC_SM2_KERNEL == SMC_KERNEL_OPT
+#define SMC_PT_UNIFORM 1
+#else
+#define SMC_PT_UNIFORM 0
 #endif
 
 /* ============================ 曲线常量 ============================ */
@@ -160,6 +178,32 @@ static void cmov_fe(sm2_fe *dst, const sm2_fe *src, uint32_t mask)
     }
 }
 
+#if SMC_PT_UNIFORM || (SMC_SM2_USE_COMB_TABLE && SMC_SM2_CT)
+/* 无穷远点的规范表示（x = y = z = 1、inf = 1；与 sm2_jac_set_inf 一致） */
+static const sm2_jac JAC_INF = {
+    {{1,0,0,0,0,0,0,0}}, {{1,0,0,0,0,0,0,0}}, {{1,0,0,0,0,0,0,0}}, 1
+};
+
+/* 「空操作」占位点：inf = 1（真实结果由掩码处理：要么丢弃、要么保留累加器），
+   但**坐标刻意不等于**无穷远的规范表示 (1,1,1)。否则当「累加器仍是无穷远」且
+   「本窗口为空」时，两点坐标完全相同 → 触发 P = ±Q 的 h = 0 退化分支，
+   使实际工作量随秘密（前导空窗口个数）变化——这正是本项修复要消除的泄漏面。 */
+static void jac_set_noop(sm2_jac *r)
+{
+    sm2_fe two = {{2,0,0,0,0,0,0,0}};
+    r->x = two; r->y = two; r->z = FE_ONE; r->inf = 1;
+}
+
+/* 掩码搬运 Jacobian 点（含 inf 标志）：m 全 1 时 dst = src */
+static void jac_cmov(sm2_jac *dst, const sm2_jac *src, uint32_t m)
+{
+    cmov_fe(&dst->x, &src->x, m);
+    cmov_fe(&dst->y, &src->y, m);
+    cmov_fe(&dst->z, &src->z, m);
+    dst->inf = (int)(((uint32_t)dst->inf & ~m) | ((uint32_t)src->inf & m));
+}
+#endif
+
 /* r = r mod m（r < 2m 时一次条件减） */
 static void fe_mod_once(uint32_t r[FE_WORDS], const sm2_fe *m)
 {
@@ -290,6 +334,7 @@ void sm2_fp_mul(sm2_fe *r, const sm2_fe *a, const sm2_fe *b)
 {
     uint32_t x[2 * FE_WORDS];
     int i, j;
+    SMC_OP_MUL();
     for (i = 0; i < 2 * FE_WORDS; i++) x[i] = 0;
     for (i = 0; i < FE_WORDS; i++) {
         uint64_t carry = 0;
@@ -310,6 +355,7 @@ void sm2_fp_mul(sm2_fe *r, const sm2_fe *a, const sm2_fe *b)
     uint32_t x[2 * FE_WORDS];
     const uint32_t *A = a->w, *B = b->w;
     int i;
+    SMC_OP_MUL();
 
     /* 8x8 schoolbook 完全展开：消除索引计算与循环分支 */
 #define MULADD(i_, j_)                                              \
@@ -460,9 +506,12 @@ void sm2_jac_to_affine(sm2_pt *r, const sm2_jac *p)
 void sm2_jac_double(sm2_jac *r, const sm2_jac *p)
 {
     sm2_fe a2, b2, c2, d, e, f;
+    /* p 为无穷远或 y = 0（2-阶点）时的判据，先算成掩码 */
+    uint32_t m_inf = (uint32_t)0 - (uint32_t)(p->inf | (int)sm2_fe_is_zero(&p->y));
     SMC_OP_DBL();
-    if (p->inf || sm2_fe_is_zero(&p->y)) { sm2_jac_set_inf(r); return; }
-
+#if !SMC_PT_UNIFORM
+    if (m_inf) { sm2_jac_set_inf(r); return; }
+#endif
     sm2_fp_sqr(&a2, &p->x);
     sm2_fp_sqr(&b2, &p->y);
     sm2_fp_sqr(&c2, &b2);
@@ -496,6 +545,9 @@ void sm2_jac_double(sm2_jac *r, const sm2_jac *p)
         sm2_fp_mul(&z3, &p->y, &p->z);
         sm2_fp_add(&z3, &z3, &z3);         /* Z3 = 2Y1Z1 */
         r->x = x3; r->y = y3; r->z = z3; r->inf = 0;
+#if SMC_PT_UNIFORM
+        jac_cmov(r, &JAC_INF, m_inf);      /* 与提前返回等价，但不分支 */
+#endif
     }
 }
 
@@ -503,9 +555,16 @@ void sm2_jac_double(sm2_jac *r, const sm2_jac *p)
 void sm2_jac_add(sm2_jac *r, const sm2_jac *p, const sm2_jac *q)
 {
     sm2_fe z1z1, z2z2, u1, u2, s1, s2, h, i2, j2, rr, v;
+    sm2_fe x3, y3, z3;
+#if SMC_PT_UNIFORM
+    uint32_t mp = (uint32_t)0 - (uint32_t)p->inf;
+    uint32_t mq = (uint32_t)0 - (uint32_t)q->inf;
+#endif
     SMC_OP_ADD();
+#if !SMC_PT_UNIFORM
     if (p->inf) { *r = *q; return; }
     if (q->inf) { *r = *p; return; }
+#endif
 
     sm2_fp_sqr(&z1z1, &p->z);
     sm2_fp_sqr(&z2z2, &q->z);
@@ -518,6 +577,10 @@ void sm2_jac_add(sm2_jac *r, const sm2_jac *p, const sm2_jac *q)
     sm2_fp_sub(&h, &u2, &u1);
     sm2_fp_sub(&rr, &s2, &s1);
 
+    /* h = 0 即 P = ±Q 的退化情形：CT 构建下同样保留这个提前返回。它不是
+       「忽略」而是**不可触发**：需要累加点的 x 坐标恰好与目标点重合，
+       等价于在标量乘路径上构造一个离散对数关系（或 2^-256 量级的巧合），
+       而攻击者无法选择秘密标量。见 docs/04 §3.6「常量时间口径」。 */
     if (sm2_fe_is_zero(&h)) {
         if (sm2_fe_is_zero(&rr)) { sm2_jac_double(r, p); return; }
         sm2_jac_set_inf(r); return;
@@ -531,7 +594,7 @@ void sm2_jac_add(sm2_jac *r, const sm2_jac *p, const sm2_jac *q)
         sm2_fp_mul(&v, &u1, &i2);          /* V = U1·I */
     }
     {
-        sm2_fe t1, x3, y3, z3;
+        sm2_fe t1;
         sm2_fp_sqr(&x3, &rr);
         sm2_fp_sub(&x3, &x3, &j2);
         sm2_fp_sub(&x3, &x3, &v);
@@ -546,16 +609,29 @@ void sm2_jac_add(sm2_jac *r, const sm2_jac *p, const sm2_jac *q)
         sm2_fp_sub(&t1, &t1, &z1z1);
         sm2_fp_sub(&t1, &t1, &z2z2);
         sm2_fp_mul(&z3, &t1, &h);
-        r->x = x3; r->y = y3; r->z = z3; r->inf = 0;
     }
+    r->x = x3; r->y = y3; r->z = z3; r->inf = 0;
+#if SMC_PT_UNIFORM
+    /* P/Q 为无穷远时用掩码选择结果，不分支（原实现先判 p->inf 再判 q->inf，
+       故 q 的掩码须排除 p 已命中的情形）。这是 CT 构建下**唯一常见**的
+       数据相关分支——窗口值为 0 时被加点是无穷远，旧实现直接提前返回，
+       使实际工作量随秘密变化（实测 3–7%，极端标量达 21×）。 */
+    jac_cmov(r, q, mp);                /* P 无穷远 → Q */
+    jac_cmov(r, p, mq & ~mp);          /* 否则 Q 无穷远 → P */
+#endif
 }
 
 /* add-2007-bl mixed（Q 仿射） */
 void sm2_jac_add_mixed(sm2_jac *r, const sm2_jac *p, const sm2_pt *q)
 {
     sm2_fe z1z1, u2, s2, h, hh, i2, j2, rr, v;
+#if SMC_PT_UNIFORM
+    uint32_t mp = (uint32_t)0 - (uint32_t)p->inf;
+#endif
     SMC_OP_ADD();
+#if !SMC_PT_UNIFORM
     if (p->inf) { sm2_jac_from_affine(r, q); return; }
+#endif
 
     sm2_fp_sqr(&z1z1, &p->z);
     sm2_fp_mul(&u2, &q->x, &z1z1);
@@ -591,6 +667,13 @@ void sm2_jac_add_mixed(sm2_jac *r, const sm2_jac *p, const sm2_pt *q)
         sm2_fp_sub(&t1, &t1, &hh);          /* Z3 = (Z1+H)²−Z1Z1−HH */
         z3 = t1;
         r->x = x3; r->y = y3; r->z = z3; r->inf = 0;
+#if SMC_PT_UNIFORM
+        {   /* P 无穷远 → 结果即 Q（掩码，不分支） */
+            sm2_jac aq;
+            sm2_jac_from_affine(&aq, q);
+            jac_cmov(r, &aq, mp);
+        }
+#endif
     }
 }
 
@@ -834,7 +917,7 @@ void sm2_scalarmult_jac(sm2_jac *r, const sm2_fe *k, const sm2_pt *p)
             sm2_jac sel;
             uint32_t want = (uint32_t)(w ? (unsigned)(w - 1) : 0u);
             uint32_t any  = (uint32_t)(w != 0);
-            sm2_jac_set_inf(&sel);
+            jac_set_noop(&sel);          /* w = 0 时的占位（坐标异于无穷远表示） */
             for (i = 0; i < 15; i++) {
                 uint32_t m = (uint32_t)0 - ((want == (uint32_t)i) & any);
                 cmov_fe(&sel.x, &tbl[i].x, m);
@@ -890,15 +973,6 @@ static void scalarmult_base_comb(sm2_jac *r, const sm2_fe *k)
 #else /* SMC_SM2_CT */
 /* ---- CT：全表扫描 + cmov（访存模式与运算次数恒定）---- */
 
-/* 掩码搬运：m 全 1 时 dst = src（含 inf 标志） */
-static void jac_cmov(sm2_jac *dst, const sm2_jac *src, uint32_t m)
-{
-    cmov_fe(&dst->x, &src->x, m);
-    cmov_fe(&dst->y, &src->y, m);
-    cmov_fe(&dst->z, &src->z, m);
-    dst->inf = (int)(((uint32_t)dst->inf & ~m) | ((uint32_t)src->inf & m));
-}
-
 /* 全表扫描选出 T[K_j] 的仿射坐标，返回 nz = (K_j != 0)。
  * 地址序列与 K_j 无关：恒读 T[0..31]，且不做提前退出。 */
 static uint32_t comb_scan_ct(sm2_pt *q, const sm2_fe *k, int j)
@@ -907,8 +981,9 @@ static uint32_t comb_scan_ct(sm2_pt *q, const sm2_fe *k, int j)
     uint32_t nz = (a | (0u - a)) >> 31;         /* a != 0 → 1 */
     sm2_pt sel;
     int i;
-    sm2_fe_set_one(&sel.x);
-    sm2_fe_set_one(&sel.y);
+    sm2_fe two = {{2,0,0,0,0,0,0,0}};
+    sel.x = two;
+    sel.y = two;   /* 占位：K_j = 0 时结果被掩码丢弃；坐标异于无穷远表示 (1,1,1) */
     for (i = 0; i < (int)SMC_SM2_TENT; i++) {
         uint32_t m = (uint32_t)0 - (uint32_t)((unsigned)i == a);
         cmov_fe(&sel.x, &SM2_COMB_TABLE[i].x, m);

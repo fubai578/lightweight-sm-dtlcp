@@ -87,6 +87,7 @@ int main(int argc, char **argv)
     memcpy(cfg.privkey, pki.sn_priv, 32);
     cfg.ca_cert = pki.ca_cert;
     cfg.verify_peer = 1;
+    cfg.allow_deterministic_rng = 1;   /* 演示程序无 TRNG：显式开启确定性 DRBG */
     cfg.psk = psk;
     cfg.psk_len = 32;
     cfg.early_data = (const uint8_t *)early;
