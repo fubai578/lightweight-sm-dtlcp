@@ -16,14 +16,38 @@
 2. **提交前先过匿名性检查**：仓库会作为支撑材料，**不得**出现单位/姓名/昵称/邮箱。
    文本用 grep 扫；**二进制文档（pptx/docx/pdf）要另外查文档属性**——
    `docProps/core.xml` 的 `dc:creator` / `cp:lastModifiedBy` 会被 WPS/PowerPoint 写入系统用户名
-   （本项目实际出现过：框架图 pptx 的 lastModifiedBy = 昵称）。生成脚本已自动清空，
-   但**每次在 Office 里另存后都要复查**。
+   （本项目实际出现过：框架图 pptx 的 lastModifiedBy = 昵称；飞书导出的报告 docx 的
+   creator = `YYT`、lastModifiedBy = `tiger`、`Company` = `微软中国`）。
+   **统一用 `python scripts/sanitize_office_meta.py --check <文件>` 检查、去掉 `--check` 即清理**；
+   凡在 Office/WPS 里另存过就要复跑一次（模板 `附件二` 本身就带 `YYT`/`SeanXiao`，会继承到成品）。
 3. **打包支撑材料时必须排除的文件**（匿名硬门槛）：`复赛通知附件/`（名单与签字页）、
    `.git/`（提交者身份）、**本文件 `AGENTS.md`（含 GitHub 账号）**。报告正文（docs/06）
    已扫描无泄漏；二进制文档要查文档属性（见上一条）。
 4. **覆盖任何"不是本轮产出"的文件前先确认它是否被手工编辑过**（本项目踩过：
    重跑 `build_framework_pptx.py` 覆盖了手工调整过的框架图 → 从 WPS 备份中心恢复；
    备份路径 `%APPDATA%\kingsoft\office6\backup\<原名>.<hash>.<时间戳>.pptx`）。
+5. **报告数字必须与仓库证据同源**：报告（飞书正式稿 / `docs/06`）里的每个比值都得能在
+   `bin/bench_results.md`、`bin/ct_cost.md`、`bin/size_report.md` 里找到出处，且**只认同一份
+   输出内的比值**。发现不一致时先重跑基准，再同步文档——不要凭记忆改数字。
+
+## 〇之二、飞书文档通道（团队报告在飞书上，用 CLI 读，不走 MCP）
+
+- 可用工具：workbuddy 装的官方命令行连接器 `@larksuite/cli`（`lark-cli` v1.0.97），路径
+  `C:\Users\HaoLing\.workbuddy\binaries\node\cli-connector-packages\node_modules\@larksuite\cli\bin\lark-cli.exe`
+  （应用 `cli_aa1befb20af85cbc`，配置在 `~/.lark-cli/`，app secret 存 keychain）。
+  **ZCode 侧的 feishu MCP（lark-mcp）是另一套授权，用不上时可以不管。**
+- 读文档三步：
+  1. `lark-cli wiki +node-get --node-token <wiki_token>` → 拿 `obj_token` / `obj_type`
+  2. 文件类（`obj_type=file`，如 .docx）：`lark-cli drive +download --wiki-token <wiki_token> --output <本地路径>`
+     云文档类：`lark-cli docs +fetch ...`
+  3. 读正文：`python -c "zipfile + re"` 解 `word/document.xml`（注意 `<w:t[^>]*>` 会误吞
+     `<w:tblPr>`，正则要用 `<w:t(?:\s[^>]*)?>`）
+- 身份过期时（`lark-cli auth status` 显示 user `missing`）：`lark-cli auth login --no-wait --json --recommend`
+  拿授权链接 → 用户在浏览器/飞书扫码完成 → `lark-cli auth login --device-code <code>` 收尾。
+  bot 身份即使 ready 也读不了**未授权给应用**的 wiki（错误码 131006），别拿它当兜底。
+- 团队报告节点：wiki token `GYs8wAwS8i5bWBkteMmcs9IknMg`（标题「作品设计报告.docx」，
+  比 `docs/06` 更长的正式稿，361 段/4 图）。**它是团队在飞书上编辑的正式稿，
+  不要用 CLI 直接覆盖写入**；改动建议以"待替换清单"形式给对方。
 
 ## 一、竞赛选题（不可变背景）
 
@@ -73,6 +97,7 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
             thirdparty_bench.sh + compare_bench.py（GmSSL 对照，交错测量）
             ct_cost.sh + ct_cost.py（常量时间代价，交错测量）
             check_embedded.sh（板级预检：宿主仿真 + 语法 + 32K 链接证明）
+            sanitize_office_meta.py（清/查 docx·pptx·xlsx 的作者与单位字段——匿名硬门槛）
 ```
 
 ## 四、进度日志（最近一轮：2026-10-09）
