@@ -80,6 +80,8 @@ int main(void)
     printf("### 内核变体：REF（基线：教科书实现）\n");
 #elif SMC_SM3_KERNEL == SMC_KERNEL_TINY
     printf("### 内核变体：TINY/SMALL（最小内存）\n");
+#elif SMC_SM3_KERNEL == SMC_KERNEL_MCU
+    printf("### 内核变体：MCU（SM3 低访存 + SM4/SM2 OPT）\n");
 #else
     printf("### 内核变体：OPT（指令级优化）\n");
 #endif

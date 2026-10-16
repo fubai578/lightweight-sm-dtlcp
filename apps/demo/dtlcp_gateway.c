@@ -35,7 +35,7 @@ int main(int argc, char **argv)
     dtlcp_session sess;
     dtlcp_stats st;
     uint8_t psk[32];
-    const char *mode_str = "full", *save = NULL, *load = NULL;
+    const char *mode_str = "full", *save = NULL, *load = NULL, *peer = NULL;
     int mode = DTLCP_MODE_FULL, port = 9000, msgs = 3, i, rc;
     uint64_t t0, t1;
     (void)t1;
@@ -46,6 +46,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--msgs") && i + 1 < argc) msgs = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--save-session") && i + 1 < argc) save = argv[++i];
         else if (!strcmp(argv[i], "--load-session") && i + 1 < argc) load = argv[++i];
+        else if (!strcmp(argv[i], "--peer") && i + 1 < argc) peer = argv[++i];
     }
     if (!strcmp(mode_str, "full")) mode = DTLCP_MODE_FULL;
     else if (!strcmp(mode_str, "resume")) mode = DTLCP_MODE_RESUME;
@@ -66,7 +67,16 @@ int main(int argc, char **argv)
         printf("[gateway] bind %d 失败\n", port);
         return 1;
     }
-    udp_io_set_timeout(&udp, 10000);
+    udp_io_set_timeout(&udp, peer ? 60000 : 10000);
+    if (peer) {
+        static const uint8_t prime[] = "DTLCP-PRIME";
+        if (udp_io_set_peer(&udp, peer, (uint16_t)port) != 0 ||
+            udp_send_cb(&udp, prime, sizeof prime - 1u) != 0) {
+            printf("[gateway] prime %s:%d 失败\n", peer, port);
+            return 1;
+        }
+        printf("[gateway] firewall prime -> %s:%d；现在复位板端\n", peer, port);
+    }
     io.send = udp_send_cb;
     io.recv = udp_recv_cb;
     io.user = &udp;

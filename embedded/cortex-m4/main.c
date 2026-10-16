@@ -22,9 +22,6 @@ int _write(int fd, const char *buf, int len)
     for (i = 0; i < len; i++) smc_port_putc(buf[i]);
     return len;
 }
-/* 少数场合还会引用 _read/_close，给最小实现避免链接报错 */
-int _read(int fd, char *buf, int len) { (void)fd; (void)buf; (void)len; return 0; }
-int _close(int fd) { (void)fd; return -1; }
 #else
 /* ---- ARMCC / MDK：__io_putchar ---- */
 int __io_putchar(int ch)
@@ -42,3 +39,16 @@ int main(void)
         smc_port_watchdog_feed();
     }
 }
+
+#if !defined(__ARMCC_VERSION) && !defined(__CC_ARM) && !defined(SMC_PORT_HOST_SIM)
+/* newlib-nano 裸机最小 syscall 桩；工程不使用文件、进程或动态内存。 */
+void *_sbrk(ptrdiff_t incr)              { (void)incr; return (void *)-1; }
+int _close(int fd)                       { (void)fd; return -1; }
+int _fstat(int fd, void *st)             { (void)fd; (void)st; return -1; }
+int _isatty(int fd)                      { (void)fd; return 1; }
+int _lseek(int fd, int off, int wh)      { (void)fd; (void)off; (void)wh; return 0; }
+int _read(int fd, char *b, int n)        { (void)fd; (void)b; (void)n; return 0; }
+int _kill(int pid, int sig)              { (void)pid; (void)sig; return -1; }
+int _getpid(void)                        { return 1; }
+void _exit(int code)                     { (void)code; for (;;) { } }
+#endif

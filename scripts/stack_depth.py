@@ -23,8 +23,18 @@ from collections import defaultdict
 
 FRAME = {}
 CONFLICT = {}
-RE_HEADER = re.compile(r"^[0-9a-f]+ <([^>]+)>:$")
-RE_CALL = re.compile(r"\bcallq?\s+[0-9a-f]*\s*<([^>]+)>")
+# 说明：反汇编输出可能有前导空格（不同 objdump 版本/Windows 版行为不一致），
+#   故先 strip() 再匹配，且不强制 ^ 锚定。
+RE_HEADER = re.compile(r"^[0-9a-f]+\s+<([^>]+)>:$")
+# 覆盖两类目标：
+#   x86   : call / callq  0x1234 <func+0x8>
+#   ARM   : bl 0 <func>   （Thumb：bl 后跟偏移再跟符号名）
+RE_CALL = re.compile(r"\b(?:callq?|bl|blx)\s+(?:[0-9a-fx]*\s*)?<([^>]+)>")
+# 可重定位 ARM .o 中，bl 的反汇编目标常显示为当前函数/0；下一行 relocation
+# 才给出真实 callee，例如 `R_ARM_THM_CALL sm2_verify`。
+RE_RELOC_CALL = re.compile(
+    r"\bR_(?:ARM|AARCH64)_(?:[A-Z0-9_]*CALL|[A-Z0-9_]*JUMP\d*)\s+([^\s]+)"
+)
 
 
 def parse_su(paths):
@@ -48,29 +58,66 @@ def parse_su(paths):
                 FRAME[name] = max(FRAME.get(name, 0), nbytes)
 
 
-def parse_calls(objs):
+def strip_sym(s):
+    """去掉 objdump 符号上的偏移后缀：'foo+0x8' → 'foo'。
+    ARM 的 Thumb 指令与 x86 一样会打印 `func+0x8`，不剥离就匹配不上 .su 里的纯函数名。"""
+    return s.split("+")[0].split("-0x")[0].strip()
+
+
+def parse_calls(objs, objdump="objdump"):
+    """提取目标文件内的 call 边。
+
+    objdump 可通过 --objdump 指定（如 arm-none-eabi-objdump）。
+    原因：交叉编译 ARM 固件时，宿主 PATH 里往往只有 x86 的 objdump，
+    它读不了 ARM ELF；硬编码 "objdump" 会静默返回空 → 调用图全空 →
+    栈深被低估为 0（本项目踩过，见 AGENTS.md 经验16）。
+    """
     edges = defaultdict(set)
     for o in objs:
         try:
-            dis = subprocess.run(["objdump", "-d", o], capture_output=True,
+            dis = subprocess.run([objdump, "-dr", o], capture_output=True,
                                  text=True, errors="replace").stdout
         except OSError:
             return None
+        if not dis.strip():
+            return None                        # 空输出＝工具不对/读不了该格式，视为失败
         cur = None
+        pending = None
         for line in dis.splitlines():
+            reloc = RE_RELOC_CALL.search(line)
+            if reloc and cur:
+                caller = pending[0] if pending else cur
+                edges[caller].add(strip_sym(reloc.group(1)))
+                pending = None
+                continue
+            if pending:
+                caller, callee = pending
+                edges[caller].add(callee)
+                pending = None
             m = RE_HEADER.match(line.strip())
             if m:
-                cur = m.group(1)
+                cur = strip_sym(m.group(1))
                 continue
             if cur:
                 c = RE_CALL.search(line)
                 if c:
-                    edges[cur].add(c.group(1))
+                    pending = (cur, strip_sym(c.group(1)))
+        if pending:
+            edges[pending[0]].add(pending[1])
     return edges
 
 
 def max_path(edges):
-    """返回 (最长路径列表, 深度)。含递归保护：路径上重复出现的节点不再累加其子树。"""
+    """返回 (最长路径列表, 深度)。含递归保护：路径上重复出现的节点不再累加其子树。
+
+    ★ 修复一个原有的缺陷（ARM 交叉编译时才暴露）：
+      旧实现在**递归返回后**才 guard.discard(n)，但 memo 缓存的是
+      "在 guard 集合非空时算出的中间结果"。一旦某个函数先被一条深路径访问过，
+      它被剪枝后的 (深度, 路径) 就被缓存下来；后续所有查询复用这个残缺值，
+      最终最长路径退化成单个节点（本项目在 ARM 上实测：1712 B 而非真实值）。
+      正确做法：memo 只缓存**不在 guard 中**的完整结果；guard 命中时
+      返回 (0,[]) 且**不写入 memo**。
+    """
     memo = {}
     guard = set()
 
@@ -106,12 +153,16 @@ def main():
     objs = []
     top = 10
     tsv = False
+    objdump = "objdump"
     i = 1
     while i < len(sys.argv):
         a = sys.argv[i]
         if a == "--objs":
             i += 1
             objs.extend(glob.glob(sys.argv[i]))
+        elif a == "--objdump":
+            i += 1
+            objdump = sys.argv[i]
         elif a == "--top":
             i += 1
             top = int(sys.argv[i])
@@ -122,16 +173,18 @@ def main():
         i += 1
 
     if not su:
-        print("用法：python scripts/stack_depth.py <*.su> [--objs <*.o>] [--top N] [--tsv]")
+        print("用法：python scripts/stack_depth.py <*.su> [--objs <*.o>] "
+              "[--objdump <objdump>] [--top N] [--tsv]")
         return 2
     if not objs:
         objs = sorted(set(os.path.splitext(p)[0] + ".o" for p in su))
         objs = [o for o in objs if os.path.exists(o)]
 
     parse_su(su)
-    edges = parse_calls(objs)
+    edges = parse_calls(objs, objdump)
     if edges is None:
         print("需要 objdump（binutils）才能计算调用路径栈深。")
+        print("  交叉编译场景请显式指定：--objdump arm-none-eabi-objdump")
         return 2
 
     depth, path = max_path(edges)

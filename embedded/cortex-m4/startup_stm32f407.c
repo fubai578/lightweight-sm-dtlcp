@@ -12,7 +12,9 @@ void Default_Handler(void);
 
 void Default_Handler(void) { for (;;) { } }
 
-__attribute__((section(".isr_vector")))
+/* used 属性：保证向量表不被"未引用即丢弃"优化掉（F1 移植时踩过这个坑，
+   漏掉会导致链接成功但 ELF 为 0 字节）。链接脚本侧另有 KEEP(*(.isr_vector)) 兜底。 */
+__attribute__((section(".isr_vector"), used))
 static void (*const g_vectors[])(void) = {
     (void (*)(void))(&_estack),
     Reset_Handler,

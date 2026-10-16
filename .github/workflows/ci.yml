@@ -21,11 +21,11 @@ jobs:
       - name: 全量测试（KAT + 差分指纹 + 协议端到端 + 攻击负向）
         run: |
           bash scripts/run_tests.sh | tee /tmp/test.log
-          # 断言：6 个内核变体 + DTLCP 共 7 行 "失败 0"
+          # 断言：7 个算法变体 + 默认/MCU 两档 DTLCP，共 9 行 "失败 0"
           n=$(grep -c "失败 0" /tmp/test.log)
-          echo "通过项：$n / 7"
-          [ "$n" -eq 7 ]
-          # 断言：6 个变体差分指纹逐位一致
+          echo "通过项：$n / 9"
+          [ "$n" -eq 9 ]
+          # 断言：7 个变体差分指纹逐位一致
           fps=$(grep "FINGERPRINT" /tmp/test.log | awk '{print $2}' | sort -u | wc -l)
           echo "指纹种类：$fps（应为 1）"
           [ "$fps" -eq 1 ]
@@ -86,8 +86,8 @@ jobs:
         run: |
           bash scripts/run_tests.sh | tee /tmp/test.log
           n=$(grep -c "失败 0" /tmp/test.log)
-          echo "通过项：$n / 7"
-          [ "$n" -eq 7 ]
+          echo "通过项：$n / 9"
+          [ "$n" -eq 9 ]
           fps=$(grep "FINGERPRINT" /tmp/test.log | awk '{print $2}' | sort -u | wc -l)
           echo "指纹种类：$fps（应为 1）"
           [ "$fps" -eq 1 ]

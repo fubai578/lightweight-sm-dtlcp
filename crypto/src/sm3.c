@@ -1,10 +1,11 @@
 /*
  * sm3.c — SM3 密码杂凑算法（GM/T 0004-2012）
  *
- * 三档内核（SMC_SM3_KERNEL）：
+ * 四档内核（SMC_SM3_KERNEL）：
  *   REF  : 教科书式消息扩展（W[68] + W'[64] 全数组），性能基线
  *   FAST : 消息扩展 2 路批量 + 压缩 8 轮展开 + load/store 合并（默认，最快）
  *   TINY : 消息扩展滚动 16 字环形缓冲 + 4 字流水，压缩栈 < 100 B（最小内存）
+ *   MCU  : 仅保留 W[68]，W' 即时异或；拆分两类轮函数，减少栈访存与每轮分支
  */
 #include "smc/sm3.h"
 
@@ -187,6 +188,49 @@ void sm3_compress(uint32_t h[8], const uint8_t block[SMC_SM3_BLOCK])
     }
 
 #undef SM3_ROUND
+
+    h[0] ^= a; h[1] ^= b; h[2] ^= c; h[3] ^= d;
+    h[4] ^= e; h[5] ^= f; h[6] ^= g; h[7] ^= hh;
+}
+
+/* ------------------------------------------------------------------ */
+/* 压缩函数：MCU（减少 RAM 流量与每轮条件分支）                         */
+/* ------------------------------------------------------------------ */
+#elif SMC_SM3_KERNEL == SMC_KERNEL_MCU
+
+void sm3_compress(uint32_t h[8], const uint8_t block[SMC_SM3_BLOCK])
+{
+    uint32_t w[68];
+    uint32_t a, b, c, d, e, f, g, hh, tj;
+    int j;
+
+    for (j = 0; j < 16; j++) w[j] = load_be32(block + 4 * j);
+    for (j = 16; j < 68; j++) {
+        w[j] = P1(w[j - 16] ^ w[j - 9] ^ ROTL(w[j - 3], 15)) ^
+               ROTL(w[j - 13], 7) ^ w[j - 6];
+    }
+
+    a = h[0]; b = h[1]; c = h[2]; d = h[3];
+    e = h[4]; f = h[5]; g = h[6]; hh = h[7];
+
+#define SM3_MCU_ROUND(ff_, gg_)                                             \
+    do {                                                                    \
+        uint32_t a12 = ROTL(a, 12);                                         \
+        uint32_t ss1 = ROTL(a12 + e + tj, 7);                               \
+        uint32_t tt1 = (ff_) + d + (ss1 ^ a12) + (w[j] ^ w[j + 4]);         \
+        uint32_t tt2 = (gg_) + hh + ss1 + w[j];                             \
+        d = c; c = ROTL(b, 9); b = a; a = tt1;                              \
+        hh = g; g = ROTL(f, 19); f = e; e = P0(tt2);                        \
+        tj = ROTL(tj, 1);                                                    \
+    } while (0)
+
+    tj = T0;
+    for (j = 0; j < 16; j++) SM3_MCU_ROUND(FF0(a, b, c), GG0(e, f, g));
+
+    tj = ROTL(T1, 16);
+    for (j = 16; j < 64; j++) SM3_MCU_ROUND(FF1(a, b, c), GG1(e, f, g));
+
+#undef SM3_MCU_ROUND
 
     h[0] ^= a; h[1] ^= b; h[2] ^= c; h[3] ^= d;
     h[4] ^= e; h[5] ^= f; h[6] ^= g; h[7] ^= hh;

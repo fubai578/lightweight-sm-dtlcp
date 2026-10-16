@@ -22,7 +22,7 @@ echo "> 口径：RDTSC 计数受 CPU 频率状态影响，**跨运行绝对值�
 echo ""
 } > $OUT
 
-for v in ref opt notab tiny; do
+for v in ref opt mcu notab tiny; do
   B=bin/bench_${v}$EXE
   if [ ! -f $B ]; then continue; fi
   echo "## [$v]" >> $OUT

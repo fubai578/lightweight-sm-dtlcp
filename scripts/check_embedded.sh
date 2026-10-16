@@ -10,7 +10,7 @@
 #
 # 用法：bash scripts/check_embedded.sh          （三步都尝试，缺工具链时跳过第③步）
 # 退出码：0 = 通过；非 0 = 有问题（CI 以此作为门禁）
-set -e
+set -eo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 CM4=embedded/cortex-m4
@@ -37,15 +37,25 @@ CC=${CC:-gcc}
 SYN="-std=c99 -fsyntax-only -Wall -Wextra -DSTM32F407xx $INC"
 for f in $CM4/main.c $CM4/board_selftest.c $CM4/startup_stm32f407.c \
          $CM4/system_stm32f4xx_stub.c $CM4/host_sim_main.c embedded/port/smc_port_stm32.c; do
-  $CC $SYN $f && echo "  ok  $f"
+  EXTRA=""
+  case "$f" in *host_sim_main.c) EXTRA="-DSMC_PORT_HOST_SIM" ;; esac
+  if ! $CC $SYN $EXTRA $f; then
+    echo "失败：语法检查未通过 $f"
+    exit 1
+  fi
+  echo "  ok  $f"
 done
 
 echo ""
 echo "==== ③ 交叉编译 + 32K 链接证明（需要 arm-none-eabi-gcc）===="
 if command -v arm-none-eabi-gcc >/dev/null 2>&1; then
-  ( cd $CM4 && bash build.sh flash | tail -20 )
-  ( cd $CM4 && bash build.sh 32k | tail -12 )
-  echo "  已产出 smc_m4.elf/.bin 与 smc_m4_32k.elf/.bin"
+  ( cd $CM4 && bash build.sh flash opt | tail -20 )
+  # 32 KiB 是资源约束证明，选择能装入该约束的 REF 档；性能档由正常 flash 构建验证。
+  ( cd $CM4 && bash build.sh 32k ref | tail -12 )
+  echo "  已产出 M4 OPT 性能固件与 32 KiB REF 约束固件"
+  echo ""
+  echo "==== ④ F103 DTLCP 20 KB RAM 预算门禁 ===="
+  bash scripts/check_m3_dtlcp.sh
 else
   echo "  跳过：未安装 arm-none-eabi-gcc（本机/CI 常见）。"
   echo "  安装方法见 docs/08 §1；装好后重跑本脚本即可完成真实尺寸与 32K 适配证明。"

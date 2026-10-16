@@ -1,6 +1,7 @@
 #!/bin/bash
 # build.sh — 一键构建（Windows Git Bash / Linux）
-# 产物：bin/test_{ref,opt,tiny}  bin/bench_{ref,opt}  bin/dtlcp_{sensor,gateway}  bin/test_dtlcp
+# 产物：bin/test_{ref,opt,mcu,tiny,ct,lite,notab}  bin/bench_{ref,opt,mcu,notab,tiny}
+#       bin/dtlcp_{sensor,gateway}  bin/test_dtlcp{,_mcu}
 set -e
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -20,6 +21,7 @@ DTLCP_SRC="dtlcp/src/dtlcp_crypto.c dtlcp/src/dtlcp_record.c dtlcp/src/dtlcp_hs.
 # 轻则打印的内核名不符，重则链接期缺符号（曾因此构建失败）。
 M_REF="-DSMC_SM3_KERNEL=1 -DSMC_SM4_KERNEL=1 -DSMC_SM2_KERNEL=1"
 M_OPT="-DSMC_SM3_KERNEL=2 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2"
+M_MCU="-DSMC_SM3_KERNEL=4 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2"
 M_TINY="-DSMC_SM3_KERNEL=3 -DSMC_SM4_KERNEL=3 -DSMC_SM2_KERNEL=2"
 M_CT="$M_OPT -DSMC_SM2_CT=1"
 M_LITE="$M_TINY -DSMC_SM2_ENC=0"
@@ -44,6 +46,7 @@ link_test() { # $1=后缀 $2..=宏
 echo "[1/4] 构算算法库三档内核 + 测试 ..."
 build_crypto_objs ref  $M_REF
 build_crypto_objs opt  $M_OPT
+build_crypto_objs mcu  $M_MCU
 build_crypto_objs tiny $M_TINY
 build_crypto_objs ct   $M_CT
 build_crypto_objs lite $M_LITE
@@ -54,15 +57,18 @@ build_crypto_objs ctc  $M_CTC
 build_crypto_objs notab $M_NOTAB
 link_test ref   $M_REF
 link_test opt   $M_OPT
+link_test mcu   $M_MCU
 link_test tiny  $M_TINY
 link_test ct    $M_CT
 link_test lite  $M_LITE
 link_test notab $M_NOTAB
-echo "      -> $OUT/test_{ref,opt,tiny,ct,lite,notab}"
+echo "      -> $OUT/test_{ref,opt,mcu,tiny,ct,lite,notab}"
 
 if [ -f tests/test_dtlcp.c ]; then
   echo "[2/4] 构建 DTLCP 协议测试 ..."
   $CC $CFLAGS -DSMC_SM2_ENC=0 tests/test_dtlcp.c $DTLCP_SRC $CRYPTO_SRC -o $OUT/test_dtlcp$EXE $LDFLAGS -lpthread
+  $CC $CFLAGS $M_MCU -DSMC_SM2_ENC=0 -DDTLCP_RECBUF=1024 \
+      tests/test_dtlcp.c $DTLCP_SRC $CRYPTO_SRC -o $OUT/test_dtlcp_mcu$EXE $LDFLAGS -lpthread
 else
   echo "[2/4] DTLCP 测试未就绪，跳过"
 fi
@@ -71,6 +77,7 @@ if [ -f apps/bench/bench_crypto.c ]; then
   echo "[3/4] 构建基准（ref/opt 双内核）..."
   $CC $CFLAGS $M_REF   apps/bench/bench_crypto.c $OBJ/*_ref.o   -o $OUT/bench_ref$EXE $LDFLAGS -lpthread
   $CC $CFLAGS $M_OPT   apps/bench/bench_crypto.c $OBJ/*_opt.o   -o $OUT/bench_opt$EXE $LDFLAGS -lpthread
+  $CC $CFLAGS $M_MCU   apps/bench/bench_crypto.c $OBJ/*_mcu.o   -o $OUT/bench_mcu$EXE $LDFLAGS -lpthread
   $CC $CFLAGS $M_TINY  apps/bench/bench_crypto.c $OBJ/*_tiny.o  -o $OUT/bench_tiny$EXE $LDFLAGS -lpthread
   # notab：与 opt 同内核、仅关闭基点 comb 表 → comb 净收益的同轮 A/B
   $CC $CFLAGS $M_NOTAB apps/bench/bench_crypto.c $OBJ/*_notab.o -o $OUT/bench_notab$EXE $LDFLAGS -lpthread

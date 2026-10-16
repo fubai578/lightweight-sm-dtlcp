@@ -12,7 +12,6 @@
  * transcript = 全部握手消息（不含 CCS/Finished）的 SM3 流式摘要。
  * 一个 UDP 数据报可含多记录；接收按记录流式解保护，遇 CCS 即切换 rx 密钥。
  */
-#include <stdio.h>
 #include <string.h>
 #include "dtlcp_internal.h"
 
@@ -104,9 +103,9 @@ static int rec_send(dtlcp_ctx *c, dtlcp_rec *rec, uint8_t type,
 static int hs_send(dtlcp_ctx *c, dtlcp_rec *rec, uint8_t hs_type,
                    const uint8_t *body, size_t blen)
 {
-    uint8_t msg[DTLCP_RECBUF];
+    uint8_t *msg = c->rxbuf; /* 发送阶段复用接收缓冲；rec_send 输出到 txbuf */
     uint8_t *p = msg;
-    if (blen + 4 > sizeof msg) return DTLCP_E_PARAM;
+    if (blen + 4 > DTLCP_RECBUF) return DTLCP_E_PARAM;
     p_u8(&p, hs_type);
     p_u24(&p, (uint32_t)blen);
     p_bytes(&p, body, blen);
@@ -140,7 +139,9 @@ static int rec_append(dtlcp_ctx *c, dtlcp_rec *rec, uint8_t type,
 /* ================= 接收路径（数据报 → 流式多记录） ================= */
 static int dg_recv(dtlcp_ctx *c, dtlcp_datagram *dg)
 {
-    int got = c->io.recv(c->io.user, dg->buf, sizeof dg->buf);
+    int got;
+    dg->buf = c->rxbuf;
+    got = c->io.recv(c->io.user, dg->buf, DTLCP_RECBUF);
     if (got <= 0) return DTLCP_E_IO;
     dg->len = (size_t)got;
     dg->off = 0;
@@ -194,15 +195,16 @@ static int parse_client_hello(dtlcp_ctx *c, const uint8_t *in, size_t len)
 {
     const uint8_t *p = in, *end = in + len;
     uint8_t flags, nsuite;
+    if (len < 35) return DTLCP_E_FORMAT; /* version + random + sid_len */
     if (g_u16(&p) != DTLCP_VERSION) return DTLCP_E_FORMAT;
     memcpy(c->cr, g_bytes(&p, 32), 32);
     c->sid_len = g_u8(&p);
-    if (c->sid_len > DTLCP_SID_MAX || p + c->sid_len > end) return DTLCP_E_FORMAT;
+    if (c->sid_len > DTLCP_SID_MAX || p + c->sid_len + 3 > end) return DTLCP_E_FORMAT;
     memcpy(c->session_id, g_bytes(&p, c->sid_len), c->sid_len);
     flags = g_u8(&p);
     {
         uint8_t il = g_u8(&p);
-        if (il > DTLCP_ID_MAX || p + il > end) return DTLCP_E_FORMAT;
+        if (il > DTLCP_ID_MAX || p + il + 1 > end) return DTLCP_E_FORMAT;
         memcpy(c->identity, g_bytes(&p, il), il);
         c->identity_len = il;
     }
@@ -216,6 +218,7 @@ static int parse_client_hello(dtlcp_ctx *c, const uint8_t *in, size_t len)
         if (p + SMC_SM2_PUBKEY > end) return DTLCP_E_FORMAT;
         memcpy(c->peer_eph_pub, g_bytes(&p, SMC_SM2_PUBKEY), SMC_SM2_PUBKEY);
     }
+    if (p != end) return DTLCP_E_FORMAT;
     c->mode = (flags & HF_PSK) ? DTLCP_MODE_PSK :
               (flags & HF_RESUME) ? DTLCP_MODE_RESUME : DTLCP_MODE_FULL;
     c->use_early = (flags & HF_EARLY) ? 1 : 0;
@@ -239,11 +242,12 @@ static size_t build_server_hello(dtlcp_ctx *c, uint8_t *out)
 static int parse_server_hello(dtlcp_ctx *c, const uint8_t *in, size_t len)
 {
     const uint8_t *p = in, *end = in + len;
-    uint8_t flags;
+    uint8_t flags, expected;
+    if (len < 38) return DTLCP_E_FORMAT; /* version + random + sid_len + suite + flags */
     if (g_u16(&p) != DTLCP_VERSION) return DTLCP_E_FORMAT;
     memcpy(c->sr, g_bytes(&p, 32), 32);
     c->sid_len = g_u8(&p);
-    if (c->sid_len > DTLCP_SID_MAX || p + c->sid_len > end) return DTLCP_E_FORMAT;
+    if (c->sid_len > DTLCP_SID_MAX || p + c->sid_len + 3 > end) return DTLCP_E_FORMAT;
     memcpy(c->session_id, g_bytes(&p, c->sid_len), c->sid_len);
     {
         uint16_t offered = c->suite;
@@ -252,12 +256,14 @@ static int parse_server_hello(dtlcp_ctx *c, const uint8_t *in, size_t len)
         c->suite = chosen;
     }
     flags = g_u8(&p);
-    (void)flags;
+    expected = (uint8_t)(c->mode == DTLCP_MODE_FULL ? HF_KEYSHARE :
+                         c->mode == DTLCP_MODE_RESUME ? HF_RESUME : HF_PSK);
+    if (flags != expected) return DTLCP_E_NOSUPPORT;
     if (c->mode == DTLCP_MODE_FULL) {
         if (p + SMC_SM2_PUBKEY > end) return DTLCP_E_FORMAT;
         memcpy(c->peer_eph_pub, g_bytes(&p, SMC_SM2_PUBKEY), SMC_SM2_PUBKEY);
     }
-    return DTLCP_OK;
+    return p == end ? DTLCP_OK : DTLCP_E_FORMAT;
 }
 
 /* SKE 签名摘要：e = SM3(ZA_signer ‖ "DTLCP-SKE" ‖ cr ‖ sr ‖ c_eph ‖ s_eph) */
@@ -351,28 +357,27 @@ static int check_finished(dtlcp_ctx *c, const uint8_t *body, size_t blen)
 /* ================= FULL：客户端 ================= */
 static int client_full(dtlcp_ctx *c)
 {
-    uint8_t body[600], payload[DTLCP_RECBUF], shared[32];
+    uint8_t body[DTLCP_HS_BODY_MAX], shared[32];
+    uint8_t *payload = c->txbuf;
     size_t blen, plen;
     uint8_t type;
     dtlcp_datagram dg;
     int rc;
-    uint8_t c_eph[SMC_SM2_PUBKEY];
 
     hs_random(c, c->cr, 32, "client-random");
     eph_keygen(c);
-    memcpy(c_eph, c->eph_pub, SMC_SM2_PUBKEY);
 
     blen = build_client_hello(c, body);
     rc = hs_send(c, &c->tx, DTLCP_HS_CLIENT_HELLO, body, blen);
-    if (rc != DTLCP_OK) { printf("[C1] hs_send rc=%d; ", rc); return rc; }
+    if (rc != DTLCP_OK) return rc;
     c->stats.hs_flights++;
 
     rc = dg_recv(c, &dg);
-    if (rc != DTLCP_OK) { printf("[C2] dg_recv rc=%d; ", rc); return rc; }
+    if (rc != DTLCP_OK) return rc;
     c->stats.hs_flights++;
 
     /* SH */
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+        rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -389,7 +394,7 @@ static int client_full(dtlcp_ctx *c)
     }
 
     /* CERT */
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -403,7 +408,7 @@ static int client_full(dtlcp_ctx *c)
     hs_absorb(c, payload, plen);
 
     /* SKE */
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -421,12 +426,12 @@ static int client_full(dtlcp_ctx *c)
     hs_absorb(c, payload, plen);
 
     /* CCS → 切换 rx */
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_CCS) return DTLCP_E_STATE;
     install_rx(c);
 
     /* FIN */
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -439,10 +444,9 @@ static int client_full(dtlcp_ctx *c)
 
     /* flight3：[Cert+CV] + CCS + FIN */
     if (c->verify_peer) {
-        uint8_t certbuf[320];
-        int clen = dtlcp_cert_encode(&c->cert, certbuf, sizeof certbuf);
+        int clen = dtlcp_cert_encode(&c->cert, body, sizeof body);
         if (clen < 0) return clen;
-        rc = hs_send(c, &c->tx, DTLCP_HS_CERTIFICATE, certbuf, (size_t)clen);
+        rc = hs_send(c, &c->tx, DTLCP_HS_CERTIFICATE, body, (size_t)clen);
         if (rc != DTLCP_OK) return rc;
         {
             uint8_t e[SMC_SM3_DIGEST], sv[SMC_SM2_SIG];
@@ -466,22 +470,22 @@ static int client_full(dtlcp_ctx *c)
     c->stats.hs_flights++;
     save_session(c);
     c->established = 1;
-    (void)c_eph;
     return DTLCP_OK;
 }
 
 /* ================= FULL：服务端 ================= */
 static int server_full(dtlcp_ctx *c)
 {
-    uint8_t body[600], payload[DTLCP_RECBUF], shared[32], packet[DTLCP_RECBUF];
+    uint8_t body[DTLCP_HS_BODY_MAX], shared[32];
+    uint8_t *payload = c->txbuf, *packet = c->rxbuf;
     size_t blen, plen, off = 0, mlen;
     uint8_t type;
     dtlcp_datagram dg;
     int rc;
 
     rc = dg_recv(c, &dg);
-    if (rc != DTLCP_OK) { printf("[S1] dg_recv rc=%d; ", rc); return rc; }
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    if (rc != DTLCP_OK) return rc;
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -509,10 +513,9 @@ static int server_full(dtlcp_ctx *c)
 
     /* CERT */
     {
-        uint8_t certbuf[320];
-        int clen = dtlcp_cert_encode(&c->cert, certbuf, sizeof certbuf);
+        int clen = dtlcp_cert_encode(&c->cert, body, sizeof body);
         if (clen < 0) return clen;
-        mlen = hs_pack(packet + off, DTLCP_HS_CERTIFICATE, certbuf, (size_t)clen);
+        mlen = hs_pack(packet + off, DTLCP_HS_CERTIFICATE, body, (size_t)clen);
         hs_absorb(c, packet + off, mlen);
         rc = rec_append(c, &c->tx, DTLCP_RT_HANDSHAKE, packet + off, mlen, packet, &off);
         if (rc != DTLCP_OK) return rc;
@@ -560,7 +563,7 @@ static int server_full(dtlcp_ctx *c)
             if (rc != DTLCP_OK) return rc;
             c->stats.hs_flights++;
             while (dg.off < dg.len) {
-                rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+                rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
                 if (rc != DTLCP_OK) return rc;
                 if (type == DTLCP_RT_CCS) {
                     install_rx(c);
@@ -606,7 +609,8 @@ static int server_full(dtlcp_ctx *c)
 /* ================= RESUME ================= */
 static int client_resume(dtlcp_ctx *c)
 {
-    uint8_t body[600], payload[DTLCP_RECBUF];
+    uint8_t body[DTLCP_HS_BODY_MAX];
+    uint8_t *payload = c->txbuf;
     size_t blen, plen;
     uint8_t type;
     dtlcp_datagram dg;
@@ -625,7 +629,7 @@ static int client_resume(dtlcp_ctx *c)
     if (rc != DTLCP_OK) return rc;
     c->stats.hs_flights++;
 
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -637,11 +641,11 @@ static int client_resume(dtlcp_ctx *c)
     hs_absorb(c, payload, plen);
     dtlcp_expand_keys(c->session.master, c->cr, c->sr, &c->keys);
 
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_CCS) return DTLCP_E_STATE;
     install_rx(c);
 
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -667,15 +671,16 @@ static int client_resume(dtlcp_ctx *c)
 
 static int server_resume(dtlcp_ctx *c, const dtlcp_session *hit)
 {
-    uint8_t body[600], payload[DTLCP_RECBUF], packet[DTLCP_RECBUF];
+    uint8_t body[DTLCP_HS_BODY_MAX];
+    uint8_t *payload = c->txbuf, *packet = c->rxbuf;
     size_t blen, plen, off = 0, mlen;
     uint8_t type;
     dtlcp_datagram dg;
     int rc;
 
     rc = dg_recv(c, &dg);
-    if (rc != DTLCP_OK) { printf("[S1] dg_recv rc=%d; ", rc); return rc; }
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    if (rc != DTLCP_OK) return rc;
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -725,7 +730,7 @@ static int server_resume(dtlcp_ctx *c, const dtlcp_session *hit)
         if (rc != DTLCP_OK) return rc;
         c->stats.hs_flights++;
         while (dg.off < dg.len) {
-            rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+            rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
             if (rc != DTLCP_OK) return rc;
             if (type == DTLCP_RT_CCS) {
                 install_rx(c);
@@ -767,7 +772,8 @@ static void early_keys(const dtlcp_ctx *c, uint8_t mac[32], uint8_t key[16], uin
 
 static int client_psk(dtlcp_ctx *c, const uint8_t *early, size_t early_len)
 {
-    uint8_t body[600], payload[DTLCP_RECBUF], packet[DTLCP_RECBUF];
+    uint8_t body[DTLCP_HS_BODY_MAX];
+    uint8_t *payload = c->txbuf, *packet = c->rxbuf;
     size_t blen, plen, off = 0, mlen;
     uint8_t type;
     dtlcp_datagram dg;
@@ -785,8 +791,9 @@ static int client_psk(dtlcp_ctx *c, const uint8_t *early, size_t early_len)
     if (c->use_early) {
         uint8_t emac[32], ekey[16], eiv[8];
         early_keys(c, emac, ekey, eiv);
-        dtlcp_rec_init_tx(&c->early_tx, c->suite, emac, ekey, eiv);
-        rc = rec_append(c, &c->early_tx, DTLCP_RT_APPDATA, early, early_len, packet, &off);
+        /* CH 已保护完成，主 tx 可临时切为 early key；最终 install_tx 会覆盖。 */
+        dtlcp_rec_init_tx(&c->tx, c->suite, emac, ekey, eiv);
+        rc = rec_append(c, &c->tx, DTLCP_RT_APPDATA, early, early_len, packet, &off);
         if (rc != DTLCP_OK) return rc;
     }
     rc = io_send(c, packet, off);
@@ -797,7 +804,7 @@ static int client_psk(dtlcp_ctx *c, const uint8_t *early, size_t early_len)
     if (rc != DTLCP_OK) return rc;
     c->stats.hs_flights++;
 
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -809,11 +816,11 @@ static int client_psk(dtlcp_ctx *c, const uint8_t *early, size_t early_len)
     hs_absorb(c, payload, plen);
     dtlcp_derive_keys(c->psk, c->psk_len, c->cr, c->sr, &c->keys);
 
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_CCS) return DTLCP_E_STATE;
     install_rx(c);
 
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -838,7 +845,8 @@ static int client_psk(dtlcp_ctx *c, const uint8_t *early, size_t early_len)
 
 static int server_psk(dtlcp_ctx *c)
 {
-    uint8_t body[600], payload[DTLCP_RECBUF], packet[DTLCP_RECBUF];
+    uint8_t body[DTLCP_HS_BODY_MAX];
+    uint8_t *payload = c->txbuf, *packet = c->rxbuf;
     size_t blen, plen, off = 0, mlen;
     uint8_t type;
     dtlcp_datagram dg;
@@ -848,7 +856,7 @@ static int server_psk(dtlcp_ctx *c)
     if (rc != DTLCP_OK) return rc;
 
     /* flight1 可能含：CH 记录 + 0-RTT 早期数据记录 */
-    rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+    rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
     if (rc != DTLCP_OK || type != DTLCP_RT_HANDSHAKE || plen < 4) return DTLCP_E_FORMAT;
     {
         const uint8_t *p = payload;
@@ -862,10 +870,11 @@ static int server_psk(dtlcp_ctx *c)
     if (c->use_early && dg.off < dg.len) {
         uint8_t emac[32], ekey[16], eiv[8];
         early_keys(c, emac, ekey, eiv);
-        dtlcp_rec_init_rx(&c->early_rx, c->suite, emac, ekey, eiv);
+        /* CH 已解保护完成，主 rx 可临时切为 early key；最终 install_rx 会覆盖。 */
+        dtlcp_rec_init_rx(&c->rx, c->suite, emac, ekey, eiv);
         {   /* 0-RTT 早期数据：换用 early 密钥解 */
             size_t consumed;
-            rc = dtlcp_rec_unprotect(&c->early_rx, dg.buf + dg.off, dg.len - dg.off,
+            rc = dtlcp_rec_unprotect(&c->rx, dg.buf + dg.off, dg.len - dg.off,
                                      c->pending, sizeof c->pending, &c->pending_len,
                                      &type, &consumed);
             if (rc != DTLCP_OK) return rc;
@@ -909,7 +918,7 @@ static int server_psk(dtlcp_ctx *c)
         if (rc != DTLCP_OK) return rc;
         c->stats.hs_flights++;
         while (dg.off < dg.len) {
-            rc = dg_next(c, &dg, &type, payload, sizeof payload, &plen);
+            rc = dg_next(c, &dg, &type, payload, DTLCP_RECBUF, &plen);
             if (rc != DTLCP_OK) return rc;
             if (type == DTLCP_RT_CCS) {
                 install_rx(c);
@@ -1074,9 +1083,10 @@ int dtlcp_recv(dtlcp_ctx *ctx, uint8_t *buf, size_t cap)
     rc = dg_recv(ctx, &dg);
     if (rc != DTLCP_OK) return rc;
     while (dg.off < dg.len) {
-        uint8_t type, payload[DTLCP_RECBUF];
+        uint8_t type;
+        uint8_t *payload = ctx->txbuf;
         size_t plen;
-        rc = dg_next(ctx, &dg, &type, payload, sizeof payload, &plen);
+        rc = dg_next(ctx, &dg, &type, payload, DTLCP_RECBUF, &plen);
         if (rc != DTLCP_OK) return rc;
         if (type == DTLCP_RT_APPDATA) {
             size_t n = plen < cap ? plen : cap;

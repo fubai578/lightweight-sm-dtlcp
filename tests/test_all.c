@@ -377,6 +377,20 @@ static void fingerprint(void)
     int i;
 
     sm3_init(&acc);
+    /* 域乘直接进入差分指纹：覆盖归约器的随机 512-bit 乘积，而不只依赖
+       上层 keygen/sign/ECDH 间接碰到的输入。REF/OPT 输出必须逐位一致。 */
+    for (i = 0; i < 512; i++) {
+        uint8_t ab[64], rb[32];
+        sm2_fe a, b, r;
+        trand(ab, (int)sizeof ab);
+        sm2_fe_from_bytes(&a, ab);
+        sm2_fe_from_bytes(&b, ab + 32);
+        sm2_fp_reduce(&a);
+        sm2_fp_reduce(&b);
+        sm2_fp_mul(&r, &a, &b);
+        sm2_fe_to_bytes(rb, &r);
+        sm3_update(&acc, rb, sizeof rb);
+    }
     for (i = 0; i < 256; i++) {
         uint8_t in[96], out[96];
         trand(in, 96);

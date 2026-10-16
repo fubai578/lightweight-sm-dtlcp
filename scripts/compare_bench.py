@@ -26,7 +26,14 @@ SEC = re.compile(r"^#{3,4} (.+)$", re.M)
 def run_bench(path):
     """运行一个基准，返回 {操作名: 最小 cycles}。同名操作跨节取最小（如 keygen 在 SM2 节）。"""
     try:
-        out = subprocess.run([path], capture_output=True, text=True, timeout=600).stdout
+        proc = subprocess.run(
+            [path], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600
+        )
+        if proc.returncode != 0:
+            print("运行 %s 失败（退出码 %d）：%s" %
+                  (path, proc.returncode, proc.stderr[-500:]), file=sys.stderr)
+            return None
+        out = proc.stdout
     except (OSError, subprocess.TimeoutExpired) as e:
         print("运行 %s 失败：%s" % (path, e), file=sys.stderr)
         return None
@@ -79,6 +86,8 @@ NOTES = {
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--ours", action="append", default=[])

@@ -25,7 +25,9 @@ $CC $CFLAGS apps/gen/gen_fixed_base.c obj/gen/sm2_arith_ref.o -o bin/gen_fixed_b
 
 TARGET=crypto/src/sm2_base_table.h
 TMP=$TARGET.tmp
-./bin/gen_fixed_base$EXE > $TMP
+# MinGW CRT 会把 stdout 的 LF 转成 CRLF；仓库生成文件统一为 LF，避免内容
+# 完全相同却因换行风格被 --check 判为不一致。
+./bin/gen_fixed_base$EXE | sed 's/\r$//' > $TMP
 
 if [ "$CHECK" = "1" ]; then
   if [ ! -f $TARGET ]; then

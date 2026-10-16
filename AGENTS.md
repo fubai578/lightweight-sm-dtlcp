@@ -167,8 +167,8 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
       唯一硬规则 = 谁提交谁保证 `run_tests.sh` 全绿）。
       基线复核：run_tests.sh 全绿（6 变体指纹 80c111c8… + DTLCP 36 项）。**三个硬约束**：
       ① 本机无 `arm-none-eabi-gcc` / `openocd` / `pyocd` / `make`（M0 阻塞项，须提供不依赖 make 的 build.sh）；
-      ② `DTLCP_RECBUF=1600` → `dtlcp_hs.c` 握手函数单帧 `payload[1600]+packet[1600]+body[600]` ≈ **3.8KB 栈**
-         （叠加记录上下文 3×1600B ≈ 4.7KB）→ 20KB RAM 上须先实测栈深，再定「降 RECBUF」或「握手复用 ctx 缓冲」；
+      ② 当时 `DTLCP_RECBUF=1600` 且握手局部数组重复，20KB RAM 风险尚未裁决；
+         该问题已于 2026-10-16 通过 RECBUF=1024、ctx 缓冲复用和自动 RAM 门禁解除；
       ③ 报告口径：docs/06 写「Cortex-M4 骨架」而实测将发生在 M3 → 决策点（建议补 F407 核心板 ¥25–60，
          顺带覆盖 TRNG 条款）
 - [x] **官方复赛通知入库（2026-10-13）**：从竞赛平台 `chinacodes.com.cn` 下齐 —— 通知正文（`news/findNewsByTitle.do?id=256`）、
@@ -214,17 +214,75 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
       （折叠轮数对全尺寸输入恒为 5），按完整标量乘折算残余工作量差异 2.4–3.6%；
       彻底消除需固定步数约减（= 域运算改造，与「缩小对 GmSSL 差距」是同一件事）。
 
-- [ ] **待做（硬件线）**：M0 工具链+DAPLink 烧录链路 → M1 size/栈深/32KB 链接证据 → M2 INA226 功耗实测
-      → M3 W5500 + DTLCP 真机三模式 → M4 文档定稿；**域运算改造（第一优先）与硬件无关，可并行开工**
-- [ ] **待做（第一优先）**：**域运算改造**——把 `fe_reduce_fold` 的"多轮折叠 + 试商收尾 + 两次条件减"
-      改为**一次性硬编码 Solinas 归约**（GmSSL 形态：`r[i] = s[i] + s[8..15]` 组合，无循环无试商），
-      预期 fe_mul 562 → 255–300 cycles，收益覆盖全部 SM2 操作（变基点 0.64×→有望 >1×）。
-      次选：Montgomery 域；或二进制扩展欧几里得求逆（约 170 轮，栈 688→350 B，需为 CT 保留 Fermat 双实现）
+- [x] **F103C8T6 硬件线 T0/T2 落地（2026-10-13 夜）—— 交叉编译与 32KB 适配证明已完成**：
+      硬件确认：**W5500 + 立创地阔星 STM32F103C8T6 + ST-Link V2 + CP2102**（无 INA226、无 F407）。
+      ① **装好 GNU Arm 14.2.Rel1**（`winget install Arm.GnuArmEmbeddedToolchain`；
+         路径含空格且带版本号 `C:\Program Files (x86)\Arm GNU Toolchain arm-none-eabi\14.2 rel1\bin`）
+         → **M0 阻塞项解除**
+      ② **新增 `embedded/cortex-m3/` 完整工程**：`stm32f1xx_min.h`（F1 最小寄存器定义，自包含，
+         **不依赖 CMSIS**）、`port/smc_port_f1.c`（F1 移植层）、`startup_stm32f103c8.c`、
+         `stm32f103c8.ld` + `stm32f103c8_32k.ld`、`build.sh`（不依赖 make）；
+         `board_selftest.c`/`main.c` 由 M4 版复制并改熵源措辞
+      ③ **熵源（F103 无 RNG 的处理）**：`smc_port_f1.c` 用 **ADC1_IN0(PA0) 噪声 + LFSR 白化**，
+         自检四关（无超时/无重复/比特∈[35%,65%]/8窗口唯一）。**如实标注边界**：
+         非 TRNG、熵质量远低于硬件 TRNG，生产必须外接 TRNG；自检项措辞用「熵源自检」而**非**
+         「TRNG 健康自检」（后者是虚假陈述，评审追问会很难答）
+      ④ **★ 六档尺寸实测（链接器值，非估算，可直接回填 docs/04 §5）**：
+         `ref` 27696B/9576B ｜ `opt` **33520B/13680B** ｜ `opt ct` 33024B ｜ `tiny` 33152B/9576B
+         ｜ `min` 30112B ｜ **`32k min` 29552B/9576B ← 链接成功，"适配<32KB Flash"已证明**
+      ⑤ **★ 反直觉但重要的实测结论：REF 比 OPT 更小（27.7KB vs 33.5KB）**
+         —— comb 表 2048B 占 Flash + SM4 T-table 4128B 占 bss。**"优化"=用 Flash/RAM 换时间**，
+         报告必须如实说明，否则评审会问"为什么优化后代码变大"
+      ⑥ **M3 上 DWT/CYCCNT 可用** → 板上 cycles 实测**不受换 M3 影响**（原报告口径担心解除）
+      ⑦ `scripts/stack_depth.py` 加 `--objdump` 参数 + ARM Thumb `bl` 识别 + memo 污染修复；
+         M3 栈深实测峰值 **`scalarmult_add_naf` 单帧 1712 B**（`-O2` 内联了 `sm2_fp_mul`，
+         故调用路径退化为单帧；**任务栈建议 ≥3KB，勿直接套用 x86 的 3280B**）
+      ⑧ 修复三个**原有缺陷**：`cortex-m4/build.sh` 的 `.._.._x.o` 隐藏文件通配坑、
+         两个 `startup_*.c` 的向量表缺 `__attribute__((used))`（会链接出 0 字节 ELF）、
+         `stack_depth.py` 的 memo 残缺缓存
+      ⑨ 新增 **`docs/09-F103上板操作指南.md`**（接线/构建/烧录/尺寸表/熵源边界/
+         W5500 接线/无 INA226 时的功耗替代方案/12 条踩坑记录/与 M4 差异总表）
+      ⑩ host 侧 `run_tests.sh` 回归**仍全绿**；此阶段尚未上板的项目已在后续条目完成。
+- [ ] **待做（硬件线）**：T3 功耗实测（无 INA226，见 docs/09 §9）
+      → T4 W5500 + DTLCP 真机三模式（T5 RAM 门禁已解除）→ T7 文档定稿
+- [x] **域运算改造完成（2026-10-16）**：`fe_reduce_solinas` 按 limb 15→8 逆序单趟折叠，
+      再做两次固定 carry 回折 + 一次条件减，删除多轮 17-limb 复制和试商收尾。
+      host `fe_mul` 273→94 cycles；F103 相对 REF 的 keygen/sign/verify/ECDH 达
+      **5.44×/4.06×/3.24×/2.15×**（旧 ECDH 0.83×已反转）；对 GmSSL 域乘 **1.95×**、
+      变基点乘 **2.04×**。新增 512 组随机域乘差分，7 变体新指纹
+      `64a5385d…b49eaf` 一致；两档 DTLCP 各 42 项全绿，CT 4096 标量工作量极差 0。
+
+- [x] **SM3 MCU 内核 + DTLCP RAM 裁决（2026-10-16）**：新增 `SMC_SM3_KERNEL=4`，
+      删除 W'[64] 数组、即时计算 W[j]^W[j+4]、拆分 0–15/16–63 轮；F103 SM3
+      1KB/4KB/HMAC 相对 REF **1.18×/1.18×/1.17×**，压缩栈 **608→368 B**。
+      算法差分扩为 **7 变体**且指纹一致。DTLCP 发送/接收复用 ctx 的 rxbuf/txbuf，
+      early tx/rx 复用主记录状态，ctx **5920→5248 B**；最长跨模块栈路径 **4872 B**，
+      MCU RAM 下界 **14224/20480 B**、余量 **6256 B**。新增 `check_m3_dtlcp.sh`，
+      默认与 MCU(RECBUF=1024) 两档协议均 42 项全绿。
+
+- [x] **W5500 T4（2026-10-16 真机完成）**：依据 WIZnet 官方 ioLibrary 实现 F103 SPI1
+      单 socket UDP 驱动与 `dtlcp_io` send/recv 回调；PA5/6/7 + PB10 CS，2 KiB TX/RX，
+      支持服务端从 UDP 头学习对端。探针支持 PB10/PA4 双 SCS 自动探测及 SWD 原始寄存器结果。
+      修正接线后 VERSIONR=0x04、PHY Link=1/100 Mbps、36 B UDP 回显一致。
+      PC Public 防火墙限制下采用 PC sensor 主动连接板端 gateway，真机完成 FULL
+      2274.97 ms/1198 B/5 SM2、RESUME 58.04 ms/428 B/0 SM2、PSK 74.77 ms/412 B、
+      PSK 0-RTT 92.65 ms/472 B，四模式均完成加密遥测 ACK。
+
+- [x] **F103 真机基线打通（2026-10-16）**：定位并修复 PA9/PA10 错写 `GPIOA_CRL`
+      （应为 `CRH`）、RX 误配输出、USART3 APB1 时钟和 PC13 CRH 四处外设错误；诊断固件
+      COM3 连续收到 `11111111`。新增 `smc_board_results` SWD 结果块与
+      `scripts/board_bench.py` / `compare_board_bench.py`，不再依赖长串口日志人工抄数。
+      REF/OPT/TINY/MCU 四档真机均 `failures=0`、熵源自检 rc=0（ones=51%）。板测结论：
+      SM4 FAST **1.48–1.56×**；SM3 FAST **0.85×**。后续新增 SM3 MCU 内核：删除 W' 数组、
+      即时异或并拆分轮函数，F103 hash/HMAC **1.17–1.18×**、栈 608→368 B；`mcu` 档改为
+      SM3 MCU + SM4 FAST + SM2 OPT。域归约优化后带测量块的
+      `32k min` = 29,720 B，仍满足 32 KiB 链接约束。
 
 ## 五、关键调试经验（后续修改代码必读）
 
 1. **T-table 旋转方向**：SM4 te1=ROTL(te0,24)、te3=ROTL(te0,8)（S[x]<<16 = ROTL(S[x]<<24,24)）
-2. **fold 约减**：折叠后必须清零高位槽（acc[j]=0）+ 迭代到高位全零（严禁提前退出截断）
+2. **Solinas 约减**：高位必须按 15→8 逆序处理并立即清零；新项只落到更低 limb，才能单趟收完。
+   两次 carry 回折的边界已用 200k 随机 512-bit 输入 + 65,572 个 0/全1 limb 组合验证。
 3. **窗口指数乘**：每 4-bit 窗口 4 次平方（×16），1 次是错的
 4. **混合加法**：jac_add_mixed 的 Z3=(Z1+H)²−Z1Z1−HH 要赋给 z3
 5. **记录层**：多记录拼接必须有显式长度字段（EtM 无长度无法定界）；seqb 由 epoch(2)+seq(6) 重建
@@ -295,3 +353,32 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
 28. **API 防误用优先于文档约定**：`entropy=NULL` 静默退化为确定性密钥、未知套件被当作 EtM
     处理——这类"默认不安全"必须做成 fail-closed（拒绝握手 + 显式开关），
     否则文档写"生产必须接 TRNG"也拦不住一次忘传参数。
+29. **ARM 交叉编译的五个坑（F103C8T6 移植实测，2026-10-13）**：
+    ① `-specs=nano.specs` **必须同时出现在链接命令**：只在 `$CFLAGS`（编译阶段）给，
+       链接仍拉完整版 `libc.a` → Flash 50KB vs 33.5KB（**差 16.5KB**），32K 直接溢出。
+       症状隐蔽：编译日志完全正常，只有 `size` 能看出来。
+    ② `printf("%llu")` 会让 **newlib-nano 回退到完整格式化器**（含 dtoa + `__aeabi_dmul` 等
+       软浮点例程，+18KB Flash）。nano 只支持 `%l`（32 位）。解法：手工拆两半打印。
+    ③ **向量表必须加 `__attribute__((used))`**：`static` 且无人引用的 section 会被直接丢弃，
+       再被 `--gc-sections` 连带回收所有代码 → **链接"成功"但 ELF = 0 字节**。
+       F4 版原本被 `-Werror` 的 unused-variable 警告挡住才没暴露。
+    ④ newlib 会引用 `_sbrk/_lseek/_fstat/_isatty/_exit/_kill/_getpid`，裸机**必须自备桩**。
+       本仓库把 `_sbrk` 设为**返回失败**——因为零动态内存是赛题要求之一，
+       让 malloc 立刻失败比悄悄分配 20KB RAM 里不存在的大块内存更安全。
+    ⑤ Git Bash 下 `../../crypto/src/x.c` 若按原样生成 `.._.._x.o`，
+       **以点开头会被当隐藏文件**，`*.o` 通配匹配不到 → 又一个 0 字节 ELF。
+       修法：规范化路径前缀，且**显式收集 OBJS 列表**代替通配。
+30. **`stack_depth.py` 的三个静默失效点**（都是"不报错但结果错"，极危险）：
+    ① 正则只认 x86 的 `callq`，**ARM Thumb 是 `bl <sym>`** → 调用图全空、栈深退化为单帧。
+    ② `objdump` 硬编码；交叉编译时宿主 PATH 里只有 x86 版，读不了 ARM ELF 且**不报错**。
+       → 已加 `--objdump` 参数；且**空输出视为失败**而非"无调用边"。
+    ③ `max_path` 的 `memo` 会缓存"递归保护未清空时算出的残缺值"，导致最长路径退化。
+    ④ ARM 反汇编的符号带偏移后缀 `func+0x8`，不剥离就匹配不上 `.su` 里的纯函数名。
+31. **`-O2` 内联对栈深口径的影响**：内联会把 `sm2_fp_mul` 等小函数帧**合并进调用者**，
+    于是「最大调用路径」退化为**单个大帧**（M3 实测：`scalarmult_add_naf` 单帧 1712 B）。
+    ⇒ **ARM 的栈深不能直接套用 x86 的非内联口径**（x86 为 3280 B），
+    报告里必须注明这个差别，并说明"未开启 `--no-inline` 重测"这一事实。
+32. **优化 ≠ 体积更小（MCU 上尤其如此）**：F103 实测 REF 内核 27 696 B < OPT 33 520 B。
+    因为 comb 表 2 048 B 占 Flash、SM4 T-table 4 128 B 占 bss，REF 是纯代码实现无表。
+    ⇒ 正确表述是「**用 Flash/RAM 换时间**」；选型按 flash 紧张与否分档
+    （紧→`ref`/`tiny`/`min`，求性能→`opt`）。这条必须写进报告，否则会被问"为什么优化后变大"。

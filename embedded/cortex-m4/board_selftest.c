@@ -60,10 +60,21 @@ static int hex_eq(const uint8_t *buf, const char *hex, size_t n)
 
 static uint64_t g_cyc;
 
+static void print_u64_dec(uint64_t v)
+{
+    unsigned long hi = (unsigned long)(v / 1000000000UL);
+    unsigned long lo = (unsigned long)(v % 1000000000UL);
+    if (hi) printf("%lu%09lu", hi, lo);
+    else    printf("%lu", lo);
+}
+
 static void report(const char *tag, const char *op, uint64_t cyc)
 {
-    printf("| %-22s | %10llu |\n", op, (unsigned long long)cyc);
-    printf("RESULT %s.%s=%llu\n", tag, op, (unsigned long long)cyc);
+    printf("| %-22s | ", op);
+    print_u64_dec(cyc);
+    printf(" |\nRESULT %s.%s=", tag, op);
+    print_u64_dec(cyc);
+    printf("\n");
 }
 
 /* 熵源：TRNG 直接供给（docs/03 §4 要求健康测试通过后使用） */

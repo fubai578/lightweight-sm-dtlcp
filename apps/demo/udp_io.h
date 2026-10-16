@@ -31,6 +31,7 @@ typedef struct {
 int  udp_io_sys_init(void);
 int  udp_io_bind(udp_io_ctx *c, uint16_t port);
 int  udp_io_connect_peer(udp_io_ctx *c, const char *host, uint16_t port);
+int  udp_io_set_peer(udp_io_ctx *c, const char *host, uint16_t port);
 void udp_io_set_timeout(udp_io_ctx *c, int ms);
 void udp_io_close(udp_io_ctx *c);
 

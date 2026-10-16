@@ -61,6 +61,17 @@ int udp_io_connect_peer(udp_io_ctx *c, const char *host, uint16_t port)
     return 0;
 }
 
+int udp_io_set_peer(udp_io_ctx *c, const char *host, uint16_t port)
+{
+    memset(&c->peer, 0, sizeof c->peer);
+    c->peer.sin_family = AF_INET;
+    c->peer.sin_port = htons(port);
+    c->peer.sin_addr.s_addr = inet_addr(host);
+    if (c->peer.sin_addr.s_addr == INADDR_NONE) return -1;
+    c->has_peer = 1;
+    return 0;
+}
+
 void udp_io_set_timeout(udp_io_ctx *c, int ms)
 {
     c->timeout_ms = ms;

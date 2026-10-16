@@ -1,6 +1,6 @@
 /*
  * sm3.h — SM3 密码杂凑算法（GM/T 0004-2012）
- * REF/OPT/TINY 内核由 SMC_SM3_KERNEL 编译期选择，API 一致。
+ * REF/FAST/TINY/MCU 内核由 SMC_SM3_KERNEL 编译期选择，API 一致。
  */
 #ifndef SMC_SM3_H
 #define SMC_SM3_H

@@ -269,61 +269,56 @@ void sm2_fp_sub(sm2_fe *r, const sm2_fe *a, const sm2_fe *b)
 
 void sm2_fp_reduce(sm2_fe *r) { fe_mod_once(r->w, &FE_P); }
 
-/* -------------------- 快速折叠约减（OPT） -------------------- */
+/* -------------------- 固定结构 Solinas 约减（OPT） -------------------- */
 #if SMC_SM2_KERNEL == SMC_KERNEL_OPT
 /*
  * Solinas 折叠：2^256 ≡ 2^224 + 2^96 − 2^64 + 1 (mod p)
- * x_j (j≥8) → 位置 j−8(+) j−5(+) j−6(−) j−1(+)；迭代至高 8 字清零。
+ * x_j (j>=8) -> 位置 j-8(+) j-5(+) j-6(-) j-1(+)。
+ *
+ * 从 j=15 向 j=8 递减处理时，所有新项都落在更低位置，因而会在同一趟
+ * 后续迭代中继续折叠，不需要旧实现的多轮 17-limb 拷贝。折叠后的系数
+ * 最大绝对值小于 2^36（16 个 32-bit limb 的极值组合验证），int64_t 足够。
+ * 两次固定的 carry 回折收掉 2^256 位，最后结果 <2^256<2p，一次条件减即可。
+ * 整条路径循环次数固定，也适用于 SMC_SM2_CT 构建。
  */
-static void fold_round(uint32_t x[2 * FE_WORDS])
+static void fe_reduce_solinas(uint32_t r[FE_WORDS], const uint32_t x[2 * FE_WORDS])
 {
-    int64_t acc[2 * FE_WORDS + 1];
-    int i, j;
-    for (i = 0; i < 2 * FE_WORDS; i++) acc[i] = (int64_t)(uint64_t)x[i];
-    acc[2 * FE_WORDS] = 0;
+    int64_t a[2 * FE_WORDS + 1];
+    int i, j, pass;
 
-    for (j = FE_WORDS; j < 2 * FE_WORDS; j++) {
-        int64_t h = (int64_t)(uint64_t)x[j];
-        acc[j - FE_WORDS] += h;
-        acc[j - 5]        += h;
-        acc[j - 6]        -= h;
-        acc[j - 1]        += h;
-        acc[j]             = 0;      /* 高位已折叠转移，必须清零 */
-    }
-    for (i = 0; i < 2 * FE_WORDS; i++) {
-        /* 归一化：算术右移 = floor(v/2^32)（gcc/ARM 均为算术移位，见 docs/02 §3.3） */
-        int64_t v = acc[i];
-        x[i] = (uint32_t)v;
-        acc[i + 1] += v >> 32;
-    }
-}
+    for (i = 0; i < 2 * FE_WORDS; i++) a[i] = (int64_t)(uint64_t)x[i];
+    a[2 * FE_WORDS] = 0;
 
-static void fe_reduce_fold(uint32_t r[FE_WORDS], uint32_t x[2 * FE_WORDS], const sm2_fe *m)
-{
-    int round, j;
-    /* 折叠直至高 8 字清零（每轮值域至少降 32 位，16 轮为数学上限）；
-       严禁在高位残留时提前退出——那会静默截断高位 */
-    for (round = 0; round < 16; round++) {
-        uint32_t hi = 0;
-        for (j = FE_WORDS; j < 2 * FE_WORDS; j++) hi |= x[j];
-        if (!hi) break;
-        fold_round(x);
-        /* 高位收缩到 3 字以内后改用试商收尾（常数更低） */
-        if (round >= 1) {
-            int nz = 0;
-            for (j = 2 * FE_WORDS - 1; j >= FE_WORDS; j--) if (x[j]) { nz = j + 1; break; }
-            if (nz <= FE_WORDS + 3) break;
-        }
-    }
-    /* 试商收尾：处理残留高位（≤3 字） */
     for (j = 2 * FE_WORDS - 1; j >= FE_WORDS; j--) {
-        int k;
-        for (k = 0; k < 4 && x[j]; k++) mul_sub_mod(x + j - FE_WORDS, m, x[j]);
-        x[j] = 0;
+        int64_t h = a[j];
+        a[j] = 0;
+        a[j - FE_WORDS] += h;
+        a[j - 5]        += h;
+        a[j - 6]        -= h;
+        a[j - 1]        += h;
     }
-    fe_mod_once(x, m);
-    fe_mod_once(x, m);
-    for (j = 0; j < FE_WORDS; j++) r[j] = x[j];
+
+    for (pass = 0; pass < 2; pass++) {
+        int64_t h;
+        for (i = 0; i < FE_WORDS; i++) {
+            int64_t v = a[i];
+            a[i] = (uint32_t)v;
+            a[i + 1] += v >> 32; /* ARM GCC 对 signed 右移生成 ASR */
+        }
+        h = a[FE_WORDS];
+        a[FE_WORDS] = 0;
+        a[0] += h;
+        a[3] += h;
+        a[2] -= h;
+        a[7] += h;
+    }
+
+    for (i = 0; i < FE_WORDS; i++) {
+        int64_t v = a[i];
+        r[i] = (uint32_t)v;
+        a[i + 1] += v >> 32;
+    }
+    fe_mod_once(r, &FE_P);
 }
 #endif
 
@@ -373,7 +368,7 @@ void sm2_fp_mul(sm2_fe *r, const sm2_fe *a, const sm2_fe *b)
 #undef MULROW
 #undef MULADD
 
-    fe_reduce_fold(r->w, x, &FE_P);
+    fe_reduce_solinas(r->w, x);
 }
 
 #else

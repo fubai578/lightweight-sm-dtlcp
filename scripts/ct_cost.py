@@ -25,7 +25,7 @@ ROW1 = re.compile(
 
 def run(path):
     out = subprocess.run([path], capture_output=True, text=True, timeout=900,
-                         errors="replace").stdout
+                         encoding="utf-8", errors="replace").stdout
     ops, timing = {}, {}
     for m in ROW1.finditer(out):
         ops.setdefault(m.group(1), (int(m.group(2)), int(m.group(3)),
@@ -44,6 +44,8 @@ def path_key(name):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if len(sys.argv) < 3:
         print("用法: python scripts/ct_cost.py <bench_sct_opt> <bench_sct_ct> [轮数]")
         return 2

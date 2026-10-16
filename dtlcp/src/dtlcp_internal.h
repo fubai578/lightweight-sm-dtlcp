@@ -12,9 +12,41 @@
 #include "smc/hmac_sm3.h"
 #include "sm2_internal.h"   /* sm2_fe/sm2_pt（内部曲线类型） */
 
-#define DTLCP_RECBUF      1600   /* 单记录缓冲（UDP MTU 内） */
+/* ------------------------------------------------------------------ *
+ * 单记录缓冲大小（编译期可配：-D 覆盖）
+ *
+ * 为什么必须可配：DTLCP_RECBUF 同时决定上下文 RAM 与记录/数据报容量——
+ *   ① 上下文静态 RAM：ctx 里有 pending + txbuf + rxbuf **三份** = 3 × RECBUF
+ *      → 1600 时是 4800 B；
+ *   ② 握手临时缓冲已改为复用 ctx->rxbuf/txbuf，栈不再随 RECBUF 线性增长；
+ *   ③ 单条记录可承载的明文上限（记录层有 `len > RECBUF - 77` 的硬检查）。
+ *
+ * 平台差异（实测，见 docs/09 §4）：
+ *   - host x86-64：RAM 充足，默认保持 1600 以维持既有 MTU/基准口径；
+ *   - **STM32F103C8T6：只有 20 KB RAM**，MCU 构建使用 `DTLCP_RECBUF=1024`。
+ *     2026-10-16 ARM 实测门禁：ctx=5248 B，算法/协议静态 RAM=4104 B，
+ *     最长调用路径栈下界=4872 B，总下界=14224 B，余量=6256 B。
+ *
+ * 用法：`bash embedded/cortex-m3/build.sh` 已在 CFLAGS 里带 -D DTLCP_RECBUF=1024；
+ *      host 构建**不要**加（保持 1600 以维持既有测试与基准口径）。
+ * ------------------------------------------------------------------ */
+#ifndef DTLCP_RECBUF
+#define DTLCP_RECBUF      1600   /* 单记录缓冲（UDP MTU 内）*/
+#endif
+
+/* 编译期自检：RECBUF 必须容纳组合握手 flight 与记录层开销。 */
+#if DTLCP_RECBUF < 512
+#error "DTLCP_RECBUF 过小：FULL 组合握手 flight 无法容纳"
+#endif
+/* 记录层明文上限 = RECBUF - 77（头部 13 + MAC 32 + CTR/CBC 尾部余量），
+   必须至少能放下一条 SM4 分组 + 一点余量 */
+#if (DTLCP_RECBUF - 77) < 64
+#error "DTLCP_RECBUF 过小：扣除记录层开销后放不下一个 SM4 分组"
+#endif
+
 #define DTLCP_HDR_LEN     13     /* type|ver|epoch|seq|len(2) */
 #define DTLCP_PSK_MAX     32
+#define DTLCP_HS_BODY_MAX 224    /* ClientHello 最大约 201 B；留字段扩展余量 */
 
 typedef struct {
     uint8_t master[48];
@@ -72,7 +104,6 @@ struct dtlcp_ctx {
     dtlcp_session session;        /* 恢复会话（服务端命中输出） */
     dtlcp_stats   stats;
 
-    dtlcp_rec  early_tx, early_rx;  /* PSK 0-RTT 早期数据密钥 */
     int        use_early;
     uint64_t   now_us;
 
@@ -85,7 +116,7 @@ struct dtlcp_ctx {
 
 /* 数据报游标：一个 UDP 数据报内多记录流式拆分 */
 typedef struct {
-    uint8_t buf[DTLCP_RECBUF];
+    uint8_t *buf;                /* 指向 ctx->rxbuf，不在调用栈复制 RECBUF */
     size_t  len, off;
 } dtlcp_datagram;
 

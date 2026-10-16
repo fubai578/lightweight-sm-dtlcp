@@ -6,6 +6,17 @@ obj/
 *.su
 *.map
 *.elf
+*.bin
+__pycache__/
+*.pyc
+
+# 本地竞赛交付包（由仓库源码、文档和实验数据汇总生成，不重复入库）
+交付材料/
+交付材料.zip
+
+# F103 早期构建脚本生成的无扩展名 ELF 目标文件
+embedded/cortex-m3/*_c
+embedded/cortex-m3/smc_sim_f1
 # 编辑器 / 系统
 .vscode/
 .idea/

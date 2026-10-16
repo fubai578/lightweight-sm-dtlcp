@@ -10,15 +10,15 @@ esac
 
 bash scripts/build.sh >/dev/null
 
-echo "==== 算法库测试（6 内核变体）===="
-for v in ref opt tiny ct lite notab; do
+echo "==== 算法库测试（7 内核变体）===="
+for v in ref opt mcu tiny ct lite notab; do
   printf "%-6s: " $v
   ./bin/test_$v$EXE | tail -1
 done
 
 echo ""
-echo "==== 差分指纹（6 变体必须逐位一致）===="
-for v in ref opt tiny ct lite notab; do
+echo "==== 差分指纹（7 变体必须逐位一致）===="
+for v in ref opt mcu tiny ct lite notab; do
   printf "%-6s: " $v
   ./bin/test_$v$EXE --fp
 done
@@ -26,6 +26,8 @@ done
 echo ""
 echo "==== DTLCP 协议测试 ===="
 ./bin/test_dtlcp$EXE | tail -1
+printf "MCU RECBUF=1024: "
+./bin/test_dtlcp_mcu$EXE | tail -1
 
 echo ""
 echo "全部测试执行完毕。"

@@ -78,7 +78,7 @@ fi
 MCU="-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard"
 # 注：只打印整数 → 不需要浮点 printf；-ffreestanding 保证不误用宿主头
 CFLAGS="$MCU -O2 -std=c99 -Wall -Wextra -ffunction-sections -fdata-sections \
-        -ffreestanding -fstack-usage -DSTM32F407xx $KDEF $XDEF $INC"
+        -ffreestanding -fstack-usage -specs=nano.specs -DSTM32F407xx $KDEF $XDEF $INC"
 
 case "$MODE" in
   32k)  LD=stm32f407_32k.ld; OUT=smc_m4_32k_${KERNEL}${EXTRA:+_$EXTRA} ;;
@@ -88,13 +88,17 @@ esac
 
 echo "[1/4] 编译（$MODE，内核=$KERNEL${EXTRA:+，扩展=$EXTRA}，链接脚本 $LD）"
 SRCS="main.c startup_stm32f407.c system_stm32f4xx_stub.c $SELF $PORT $CRYPTO"
+OBJS=""
 for f in $SRCS; do
-  o=$(echo "$f" | tr '/' '_' | sed 's/\.c$/.o/')
+  # 显式收集对象，避免 Windows/Git Bash 下隐藏文件和空 *.o 通配问题。
+  o=$(echo "$f" | sed 's|\.\./||g; s|/|_|g; s|\.c$|.o|')
+  case "$o" in ._*|_*) echo "内部错误：目标文件名 '$o' 非法"; exit 3 ;; esac
   $CC $CFLAGS -c "$f" -o "$o"
+  OBJS="$OBJS $o"
 done
 
 echo "[2/4] 链接"
-$CC *.o $MCU -T$LD -nostartfiles -Wl,--gc-sections -Wl,-Map=$OUT.map -o $OUT.elf
+$CC $OBJS $MCU -specs=nano.specs -T$LD -nostartfiles -Wl,--gc-sections -Wl,-Map=$OUT.map -o $OUT.elf
 
 echo "[3/4] 尺寸（对照 docs/04 的 Flash 预算）"
 $SIZE $OUT.elf

@@ -10,11 +10,11 @@
 
 | 赛题要求 | 本仓库交付 | 实测结论（数据来源） |
 |---|---|---|
-| ① SM2/SM3/SM4 轻量化裁剪与指令级优化 | 三算法各提供 **REF（教科书基线）/ OPT（指令级优化）/ TINY·SMALL（最小内存）三内核**，编译期宏切换、同一 API；`smc_config.h` 功能裁剪矩阵 | **SM2 keygen 3.73× / sign 3.32× / verify 2.29× / ECDH 1.45×**（Solinas 折叠约减 + wNAF + 验签交织双标量乘 + **基点 comb 预计算表**）；SM4 **1.76–1.93×**（T-table）；裁剪后 Flash **26.6K→20.9K**、T-table RAM **4K→0**（同一份基准输出的 REF/OPT 比值，见 `bin/bench_results.md`） |
+| ① SM2/SM3/SM4 轻量化裁剪与指令级优化 | REF/OPT/TINY·SMALL/MCU 多档内核，编译期宏切换、同一 API；`smc_config.h` 功能裁剪矩阵 | 当前 host 快照 SM2 **8.90×/6.22×/5.59×/3.63×**，F103 真机 **5.44×/4.07×/3.24×/2.15×**；SM3 MCU 1.17–1.18×；32 KiB 精简固件链接通过 |
 | ② 基于标准 DTLCP 完成国密改造、替换原生密码套件、UDP 低时延传输 | 记录层（SM4-CTR EtM / SM4-CBC MtE + epoch/序列号防重放）+ 握手精简（FULL / RESUME / PSK）+ HMAC-SM3 密钥调度 + 紧凑 SM2 证书 | FULL **1.5-RTT**（对比 TLCP 标准 3-RTT）、RESUME **1-RTT / 0 次 SM2**、PSK **0-RTT 早期数据**；FULL 握手时延 **6.53ms → 4.00ms（1.63×，comb 前后同条件 A/B，7 轮取最小）** |
-| ③ 算法实测（算力/功耗）、可移植嵌入式 C、固件安全改造规范 | 基准/内存/功耗模型三类报告 + 零 libc 依赖嵌入式 C + 9 章固件安全规范 | 6 内核变体测试全绿且**差分指纹逐位一致**；KAT 与 OpenSSL 3.2 交叉验证（`docs/04`） |
-| ④ **第三方基线对照**（外部锚点，非自证） | `scripts/thirdparty_bench.sh`：自动取 GmSSL 3.1.1（纯 C 国密参考实现）编译子集并**交错测量** | 对 GmSSL：SM4 **打平–1.12×**、SM2 基点乘 **1.61×**、验签 **1.03×**；**SM3 0.87×、变基点乘 0.62×**（根因：域乘法慢 2.2×，已列入第一优先优化项） |
-| ✦ **常量时间不再放弃预计算表**（本轮新结论） | CT 构建以"静态仿射 comb 表 + **全表扫描 cmov**"复用同一张只读表；点运算一律**无条件算完 + 掩码选择**（不因无穷远提前返回）；`scripts/ct_cost.sh` 交错测量 | 基点路径的点加/倍点由 257 dbl+78 add 降到 **51 dbl + 51 add**，且 **4096 个标量上运算次数与域乘次数极差均为 0**；性能代价由约 **2.8× 降到 1.13×**（通用路径 1.18×） |
+| ③ 算法实测（算力/功耗）、可移植嵌入式 C、固件安全改造规范 | 基准/内存/功耗模型三类报告 + 零 libc 依赖嵌入式 C + 9 章固件安全规范 | 7 内核变体测试全绿且**差分指纹逐位一致**；KAT 与 OpenSSL 3.2 交叉验证（`docs/04`） |
+| ④ **第三方基线对照**（外部锚点，非自证） | `scripts/thirdparty_bench.sh`：自动取 GmSSL 3.1.1（纯 C 国密参考实现）编译子集并**交错测量** | 对 GmSSL：SM4 **1.04–1.07×**、SM2 基点乘 **5.00×**、变基点乘 **2.04×**、验签 **3.29×**、域乘 **1.95×**；SM3 0.89–0.90× |
+| ✦ **常量时间不再放弃预计算表**（本轮新结论） | CT 构建以"静态仿射 comb 表 + **全表扫描 cmov**"复用同一张只读表；`scripts/ct_cost.sh` 交错测量 | 基点路径的点加/倍点由 257 dbl+78 add 降到 **51 dbl + 51 add**，且点运算与域乘工作量对 **4096 个标量极差为 0**；性能代价约 **1.13×**（通用路径 1.18×） |
 | ✦ **验签变基点腿降级为固定基点**（本轮新结论） | `sm2_peer_table_build` / `sm2_verify_with_table`（`SMC_SM2_PEER_TABLE`）：依据"验签输入全为公开数据 ⇒ 无需常量时间"为对端公钥建 comb 表 | verify **5.97M → 3.24M cycles（1.84×）**；建表 3.33M ≈ 0.56 次验签，**第 2 次验签起净赚**；每对端缓存 **2 KB** |
 | ✦ 侧信道防护实证（加分项） | `SMC_SM2_CT` 常量时间标量乘 + **执行路径与工作量相关性实验**（`apps/bench/bench_sct.c`，覆盖通用/基点两条路径） | 确定性指标（运算次数 **+ 域乘次数**）：变时间构建点加随 nonce 在 **5–58**、**2–51** 间变化（域乘 2950–3232 / 1281–1347）；常量时间构建**基点 51/51/1347、通用 78/257/3484，两项极差均 0** → 执行路径与实际工作量都与秘密无关 |
 
@@ -37,7 +37,7 @@ Windows 用户使用 **Git Bash** 执行全部命令。
 ## 3. 快速开始
 
 ```bash
-bash scripts/build.sh        # ① 构建：算法库 6 变体 + 全部测试 + demo + bench
+bash scripts/build.sh        # ① 构建：算法库 7 变体 + 全部测试 + demo + bench
 bash scripts/run_tests.sh    # ② 正确性：KAT / 差分指纹 / 协议端到端 / 攻击负向
 bash scripts/demo_run.sh     # ③ 演示：UDP 传感终端 ↔ 网关，FULL/RESUME/PSK 三场景
 bash scripts/benchmark.sh    # ④ 性能：REF vs OPT vs notab + 功耗估算 → bin/bench_results.md
@@ -57,8 +57,9 @@ bash scripts/build.sh && ./bin/bench_sct_opt$EXE && ./bin/bench_sct_ct$EXE   # �
 
 **预期结果**：
 
-- `build.sh` 输出 `构建完成`，产物在 `bin/`：`test_{ref,opt,tiny,ct,lite,notab}`、`test_dtlcp`、`bench_{ref,opt,notab,tiny}`、`dtlcp_{sensor,gateway}`；
-- `run_tests.sh` 输出 6 个变体 `失败 0`、6 行相同指纹 `80c111c8…40eb5`、DTLCP `42 项，失败 0`；
+- `build.sh` 输出 `构建完成`，产物在 `bin/`：`test_{ref,opt,mcu,tiny,ct,lite,notab}`、
+  `test_dtlcp{,_mcu}`、`bench_{ref,opt,mcu,notab,tiny}`、`dtlcp_{sensor,gateway}`；
+- `run_tests.sh` 输出 7 个变体 `失败 0`、7 行相同指纹 `64a5385d…b49eaf`、两档 DTLCP 各 `42 项，失败 0`；
 - `demo_run.sh` 输出三场景握手统计（FULL ≈4–6ms/5 次 SM2 → RESUME ≈1.0ms/0 次 SM2 → PSK 0-RTT 回显），末尾附模式对比摘要。
 
 ---
@@ -69,7 +70,7 @@ bash scripts/build.sh && ./bin/bench_sct_opt$EXE && ./bin/bench_sct_ct$EXE   # �
 crypto/         算法库（零 libc 依赖、零动态内存，可直接编入裸机固件）
   include/smc/smc_config.h   编译期裁剪开关 + 内核选择（本文件是"裁剪"总入口）
   include/smc/sm3.h  sm4.h  sm2.h  hmac_sm3.h  smc_rng.h
-  src/sm3.c                  SM3 三内核：REF / FAST（8 轮展开）/ TINY（16 字环形调度，栈 ~64B）
+  src/sm3.c                  SM3 四内核：REF / FAST / TINY / MCU（低访存，F103 实测择优）
   src/sm4.c                  SM4 三内核：REF / FAST（T-table 4KB）/ SMALL（仅 256B S-box）；CBC/CTR
   src/sm2_arith.c            SM2 域/标量/点算术：REF=试商长除法，OPT=Solinas 折叠约减+4bit 窗口标量乘
   src/sm2_base_table.h       **基点 comb 预计算表（自动生成，只读常量 2048B，不占 RAM）**
@@ -100,9 +101,17 @@ tests/
 
 embedded/       嵌入式移植
   port/smc_port.h            平台钩子：TRNG / 周期计数 / 看门狗 / 延时
-  port/smc_port_stm32.c      STM32F4/L4 参考实现（DWT + 硬件 RNG）
-  cortex-m4/                 Makefile + main.c(KAT+基准) + 启动文件 + 链接脚本
-  README.md                  5 步移植指南与内存预算
+  port/smc_port_stm32.c      STM32F4 参考实现（DWT + **硬件 RNG**）
+  port/smc_port_f1.c         STM32F103C8T6 实现（DWT + **ADC 噪声熵源**，该芯片无 RNG）
+  cortex-m4/                 F407 工程：Makefile + main.c(KAT+基准) + 启动文件 + 链接脚本(1M/128K)
+  cortex-m3/                 **F103C8T6 工程（实测平台）**：build.sh(不依赖make) + 自带最小寄存器头(不依赖CMSIS)
+                             + 启动文件 + 链接脚本(64K/20K 与 **32K 适配证明**)
+                             + W5500 单 socket UDP 驱动/探针与 FULL/RESUME/PSK/0-RTT 真机 demo
+  README.md                  移植指南与内存预算
+
+scripts/board_bench.py       F103 自动烧录 + SWD 读取完成态/KAT/熵源/cycles（不依赖串口日志）
+scripts/compare_board_bench.py  REF/OPT/TINY/MCU 板测 JSON 对比表生成器
+scripts/check_m3_dtlcp.sh    F103 DTLCP 结构体/静态 RAM/跨模块最长栈路径 20KB 门禁
 
 Makefile        便捷入口（转发到 scripts/*.sh；Windows 无 make 时直接用脚本）
 .github/workflows/ci.yml  GitHub Actions：Ubuntu + Windows 双平台构建与断言测试
@@ -128,7 +137,7 @@ bin/ obj/       构建产物（可随时删除后重建）
 
 ## 5. 技术要点速览
 
-### 5.1 算法三内核（编译期切换）
+### 5.1 算法多档内核（编译期切换）
 
 | 算法 | REF（基线） | OPT（默认，最优性能） | TINY / SMALL（最小内存） |
 |---|---|---|---|
@@ -137,7 +146,7 @@ bin/ obj/       构建产物（可随时删除后重建）
 | SM2 | 试商长除法约减 + 二进制标量乘 | **Solinas 折叠约减 + wNAF(w=4) 标量乘 + 验签交织双标量乘 + 基点 comb 预计算表**（`SMC_SM2_CT=1` 切换常量时间全表扫描） | 配合 `SMC_SM2_ENC=0`、`SMC_SM2_FIXED_TABLE=0` 等裁剪开关 |
 
 **基点 comb 预计算表**（`SMC_SM2_FIXED_TABLE`，OPT 且非 CT 时默认开）：固定基点 k·G 由 wNAF 的
-约 257 次倍点降为 51 次倍点 + ≤51 次混合加，使 **keygen 再快 2.68×、sign 再快 2.47×**；
+约 257 次倍点降为 51 次倍点 + ≤51 次混合加，使 **keygen 再快 2.60×、sign 再快 2.02×**；
 代价是 **3096 B Flash（表 2048 B + 代码约 1 KB）、静态 RAM 增量 0**。
 表由 `apps/gen/gen_fixed_base.c` 生成（生成时 1 次批量求逆转仿射，并自检与 REF 二进制标量乘一致），
 `scripts/gen_fixed_base.sh --check` 校验表与生成器同步（CI 已纳入）。
@@ -172,9 +181,10 @@ bin/ obj/       构建产物（可随时删除后重建）
 
 1. **标准 KAT 与 OpenSSL 交叉**：SM3（"abc"/"abcd"×4/1000×'q' 等）、SM4 标准向量、HMAC-SM3 的期望值
    均由本机 OpenSSL 3.2.4 生成后固化进测试；SM2 用曲线方程、n·G=∞、(n−1)G=−G 等数学性质自检。
-2. **REF/OPT 差分**：6 个内核变体（ref/opt/tiny/ct/lite/notab）对同一输入集的输出做 SM3 摘要——
-   必须逐位一致（当前 `80c111c874afde0179907d7fff4ef92c411a34c505882fa08e0bfff0d9640eb5`）。
-   指纹输入包含 keygen/sign/ECDH/verify，因此**同时校验了 comb 预计算表与 wNAF 路径的等价性**。
+2. **REF/OPT 差分**：7 个内核变体（ref/opt/mcu/tiny/ct/lite/notab）对同一输入集的输出做 SM3 摘要——
+   必须逐位一致（当前 `64a5385d17ad44be141970496e5b70dca47226fd387485cc4e2ae3bdf5b49eaf`）。
+   指纹输入包含 512 组随机域乘及 keygen/sign/ECDH/verify，因此同时校验固定结构 Solinas
+   归约、comb 预计算表与 wNAF 路径的等价性。
 3. **基点表专项校验**：生成器在生成时自检"全部表项在曲线上 + 16 个随机标量与 REF 二进制标量乘一致"；
    `scripts/gen_fixed_base.sh --check` 在 CI 中校验仓库内表与生成器同步（防止表被手工改动或过期）。
 4. **协议端到端**：三模式 UDP 会话 + CBC 标准套件 + 0-RTT 早期数据 + 加密回显（`tests/test_dtlcp.c`）。
@@ -203,8 +213,8 @@ bin/ obj/       构建产物（可随时删除后重建）
 
 **栈预算（重要）**：`-fstack-usage` 只给单函数帧，实际需要的是调用链之和。
 `scripts/stack_depth.py` 由 `.su` + `objdump` 调用图算出**最大调用路径栈深**：
-默认配置 **3280 B**（路径 `scalarmult_add_naf → build_odd_table → sm2_jac_add → sm2_fp_mul`），
-常量时间构建 3936 B；按 1.5× 余量建议任务栈 **≥5 KB**（CT 构建 ≥6 KB）。
+算法对象默认路径下界 **3216 B**，常量时间构建 **3392 B**；F103 DTLCP 跨模块最长路径
+为 **4872 B**。部署时还需为 ABI、中断与应用调用留余量。
 注意这替代了早期文档中"栈预算以 `fe_pow_mod` 688 B 计"的**不成立**结论——那只是单个函数帧。
 
 内存预算、RTOS 集成注意与板上验证方法见 `embedded/README.md`。
@@ -221,9 +231,10 @@ bin/ obj/       构建产物（可随时删除后重建）
 | `docs/04-测试与性能对比报告.md` | 实测数据汇总：正确性、算力、内存、协议开销、功耗估算、优化空间 |
 | `docs/05-硬件采购清单.md` | 硬件采购清单与实测替换说明 |
 | `docs/06-作品设计报告.md` | 复赛提交物（按主办方模板 5 章组织，匿名稿） |
-| `docs/08-硬件测试操作指南.md` | **上板怎么做**：接线、烧录、记录表、功耗差值法、排查表、验收清单 |
 | `docs/figures/系统框架图.pptx` | 系统分层框架图（图形对象手工绘制、可在 PowerPoint 继续编辑；同名 `.png` 可直接插入报告，生成脚本 `build_framework_pptx.py` 可复现） |
-| `docs/07-分工与推进计划.md` | 硬件到位后的现状剖析、任务卡 T0–T7 与占板排期 |
+| `docs/08-硬件测试操作指南.md` | **上板怎么做（F407）**：接线、烧录、记录表、功耗差值法、排查表、验收清单 |
+| `docs/09-F103上板操作指南.md` | **上板怎么做（F103C8T6，实测平台）**：接线、构建烧录、**六档尺寸实测表**、熵源边界、W5500 接线、无 INA226 的功耗替代方案、12 条移植踩坑 |
+| `docs/07-分工与推进计划.md` | **硬件到位后的现状剖析**、任务卡 T0–T7 与占板排期 |
 | `AGENTS.md` | 项目长期记忆：选题背景、已锁定技术决策、12 条关键调试经验（二次开发前必读） |
 
 ---
@@ -240,8 +251,9 @@ Git Bash 默认 GBK 代码页显示 UTF-8 中文所致；不影响功能。可�
 本机某些包装命令（如 `timeout`）会吞掉 stderr——仓库内调试输出统一走 stdout，故可直接重定向排查。
 
 **Q：想比较别的内核组合？**
-`SMC_SM3_KERNEL` / `SMC_SM4_KERNEL` / `SMC_SM2_KERNEL`（1=REF、2=OPT/FAST、3=TINY/SMALL）
-可在编译时任意组合；`scripts/build.sh` 中已有 ref/opt/tiny/ct/lite/notab 六组示例，加一组照抄即可。
+`SMC_SM3_KERNEL`（1=REF、2=FAST、3=TINY、4=MCU）/
+`SMC_SM4_KERNEL` / `SMC_SM2_KERNEL`（1=REF、2=OPT/FAST、3=SMALL）
+可在编译时任意组合；`scripts/build.sh` 已含 ref/opt/mcu/tiny/ct/lite/notab 七组示例。
 
 **Q：改了 SM2 曲线参数或标量乘算法，基点预计算表怎么办？**
 `bash scripts/gen_fixed_base.sh` 重新生成（生成器带自检：全部表项在曲线上、16 个随机标量与 REF
@@ -260,7 +272,7 @@ Git Bash 默认 GBK 代码页显示 UTF-8 中文所致；不影响功能。可�
 
 **Q：栈要留多少？**
 不要只看 `-fstack-usage` 的单函数帧（那只是自身帧）。用 `python scripts/stack_depth.py "obj/size/*_full.su"`
-算最大调用路径：当前默认配置 **3280 B**，建议任务栈 ≥5 KB、常量时间构建 ≥6 KB。
+算最大调用路径：算法对象当前下界 **3216 B**（CT 3392 B）；F103 DTLCP 全链路下界 **4872 B**。
 
 **Q：没有 make / arm-none-eabi-gcc？**
 主工程本来就不依赖 make；Cortex-M 工程需自行安装 GNU Arm 工具链后 `make`，或直接复制源码进 IDE 工程。
@@ -290,11 +302,10 @@ Git Bash 默认 GBK 代码页显示 UTF-8 中文所致；不影响功能。可�
 - **加速比口径**：全部为**同一次基准输出内的 REF/OPT 比值**。RDTSC 绝对值受 CPU 频率状态影响，
   跨运行不可比；`notab` 变体（同内核、仅关 comb 表）用于隔离单项优化的净收益；
   与第三方（GmSSL）的比值取自**交错测量**的最小值（`scripts/thirdparty_bench.sh`）。
-  **<10% 量级的小差值（如 `fe_mul` 的 REF/OPT 比较）只能用交错测量判定**——顺序快照出现过离群值。
-- **对外部基线仍有落后项（如实声明）**：SM3 慢 GmSSL 0.87×；变基点标量乘慢 0.64×，
-  根因已定位为域运算慢 2.0–2.2×（`docs/04 §4`），列为下一轮第一优先优化项。
-  另：本库 OPT 的 Solinas 折叠约减在**有硬件除法**的 x86-64 上略慢于 REF 的试商长除法
-  （`fe_mul` 交错测量 REF 533 vs OPT 561；"MCU 无硬件除法时更优"仅为待板上验证的假设）。
+  小差值仍须交错测量；固定结构 Solinas 归约的收益已远超噪声区间。
+- **域运算瓶颈已修复**：高位逆序单趟折叠 + 两次固定 carry 回折替代多轮复制与试商收尾。
+  F103 ECDH 从 REF 的 0.83×反转为 **2.15×**；x86-64 `fe_mul` 为 94 cycles，
+  对 GmSSL 纯 C 基线快 **1.95×**。仍如实保留的落后项是 SM3（对 GmSSL 0.90×）。
 
 ---
 

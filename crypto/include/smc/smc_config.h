@@ -8,7 +8,7 @@
  *   SMC_SM2_ECDH=0       裁掉 ECDH（纯 PSK 部署可裁）
  *   SMC_SM4_MODE_CBC=0   裁掉 SM4-CBC
  *   SMC_SM4_MODE_CTR=0   裁掉 SM4-CTR
- *   SMC_SM3_KERNEL       1=REF 2=FAST(默认) 3=TINY(最小栈)
+ *   SMC_SM3_KERNEL       1=REF 2=FAST(默认) 3=TINY(最小栈) 4=MCU(低访存)
  *   SMC_SM4_KERNEL       1=REF 2=FAST(默认) 3=SMALL(最小常量表)
  *   SMC_SM2_KERNEL       1=REF 2=OPT(默认)   SMC_SM2_CT=1 常量时间标量乘
  *   SMC_SM2_FIXED_TABLE  1=启用基点 comb 预计算表（OPT 且非 CT 时默认 1；省 Flash 可置 0）
@@ -44,6 +44,7 @@
 #define SMC_KERNEL_FAST  2   /* SM4: T-table 展开 */
 #define SMC_KERNEL_TINY  3   /* SM3: 最小栈 */
 #define SMC_KERNEL_SMALL 3   /* SM4: 最小常量表 */
+#define SMC_KERNEL_MCU   4   /* SM3: W[68] + 即时 W'，面向顺序执行 MCU */
 #define SMC_KERNEL_OPT   2
 
 #ifndef SMC_SM3_KERNEL
