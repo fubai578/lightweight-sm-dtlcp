@@ -1,3 +1,7 @@
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 /*
  * bench_crypto.c — 算法微基准（REF / OPT / TINY 内核对比）
  * 构建后分别链接各内核对象：bin/bench_{ref,opt,tiny}
