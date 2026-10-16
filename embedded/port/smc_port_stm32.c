@@ -1,3 +1,7 @@
+#if defined(SMC_PORT_HOST_SIM) && !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 /*
  * smc_port_stm32.c — Cortex-M4 平台移植参考实现（STM32F407）
  *
