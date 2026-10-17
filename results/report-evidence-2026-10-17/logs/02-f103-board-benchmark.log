@@ -1,0 +1,22 @@
+Date: 2026-10-16 (Asia/Shanghai)
+Board: STM32F103C8T6, Cortex-M3, HSI 8 MHz
+Toolchain: GNU Arm 14.2.1, -O2
+Measurement: DWT CYCCNT, five rounds minimum
+
+Final MCU profile: SM3=4, SM4=2, SM2=2, CT=0
+failures=0
+entropy_selftest_rc=0
+entropy_ones_pct=51
+
+sm3_1KB=76482
+sm3_4KB=290852
+hmac_sm3_256B=38144
+sm4_ecb_block=897
+sm4_cbc_1KB=71799
+sm4_ctr_1KB=68986
+sm2_keygen=3403883
+sm2_sign=4710811
+sm2_verify=11484901
+sm2_ecdh=8980823
+
+Result: PASS

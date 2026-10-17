@@ -1,0 +1,39 @@
+Date: 2026-10-17 (Asia/Shanghai)
+Source commit: 142da366dad81c649604a7b0fab3d2dff81c57a2
+GitHub Actions run: 38939385334
+URL: https://github.com/fubai578/lightweight-sm-dtlcp/actions/runs/38939385334
+
+Linux (gcc): PASS
+- build: PASS
+- fixed-base table consistency: PASS
+- full algorithm and protocol tests: PASS
+- embedded preflight and 32 KiB link check: PASS
+- performance benchmark: PASS
+- side-channel operation-count experiment: PASS
+- 4096-scalar constant-work gate: PASS
+- interleaved CT cost: PASS
+
+Windows (MinGW / Git Bash): PASS
+- build: PASS
+- full tests: PASS
+
+Algorithm variants:
+ref    25 checks, 0 failed
+opt    41 checks, 0 failed
+mcu    41 checks, 0 failed
+tiny   40 checks, 0 failed
+ct     41 checks, 0 failed
+lite   38 checks, 0 failed
+notab  41 checks, 0 failed
+
+Differential fingerprint for all seven variants:
+64a5385d17ad44be141970496e5b70dca47226fd387485cc4e2ae3bdf5b49eaf
+
+DTLCP default RECBUF=1600: 42 checks, 0 failed
+DTLCP MCU RECBUF=1024:     42 checks, 0 failed
+
+CT 4096-scalar deterministic gate:
+general path add/double/multiply = 78/257/3484, range 0/0/0
+base path add/double/multiply    = 51/51/1347, range 0/0/0
+
+Result: PASS

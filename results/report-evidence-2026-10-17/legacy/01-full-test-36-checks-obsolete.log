@@ -1,0 +1,19 @@
+Date: 2026-10-16 (Asia/Shanghai)
+Command: bash scripts/run_tests.sh
+
+Algorithm variants:
+ref    25 checks, 0 failed
+opt    41 checks, 0 failed
+mcu    41 checks, 0 failed
+tiny   40 checks, 0 failed
+ct     41 checks, 0 failed
+lite   38 checks, 0 failed
+notab  41 checks, 0 failed
+
+Differential fingerprint for all seven variants:
+64a5385d17ad44be141970496e5b70dca47226fd387485cc4e2ae3bdf5b49eaf
+
+DTLCP default RECBUF=1600: 36 checks, 0 failed
+DTLCP MCU RECBUF=1024:     36 checks, 0 failed
+
+Result: PASS

@@ -1,0 +1,11 @@
+operation,ref_cycles,mcu_cycles,speedup_ref_over_mcu,evidence
+sm3_1KB,90167,76482,1.1789,derived_from_f103_dwt
+sm3_4KB,343177,290852,1.1799,derived_from_f103_dwt
+hmac_sm3_256B,44584,38144,1.1688,derived_from_f103_dwt
+sm4_ecb_block,1398,897,1.5585,derived_from_f103_dwt
+sm4_cbc_1KB,106095,71799,1.4777,derived_from_f103_dwt
+sm4_ctr_1KB,102070,68986,1.4796,derived_from_f103_dwt
+sm2_keygen,18510336,3403883,5.4379,derived_from_f103_dwt
+sm2_sign,19156461,4710811,4.0664,derived_from_f103_dwt
+sm2_verify,37180413,11484901,3.2373,derived_from_f103_dwt
+sm2_ecdh,19275698,8980823,2.1463,derived_from_f103_dwt

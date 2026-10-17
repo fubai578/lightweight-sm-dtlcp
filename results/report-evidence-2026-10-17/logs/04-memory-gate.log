@@ -1,0 +1,18 @@
+Date: 2026-10-16 (Asia/Shanghai)
+Command: bash scripts/check_m3_dtlcp.sh
+Configuration: DTLCP_RECBUF=1024, SM3 MCU, SM4 FAST, SM2 OPT, SM2 ENC trimmed
+
+dtlcp_ctx=5248 B
+algorithm_protocol_static_ram=4104 B
+longest_stack_path_lower_bound=4872 B
+ram_lower_bound_total=14224 B
+device_ram=20480 B
+headroom=6256 B
+
+Longest path:
+dtlcp_connect > client_full > dtlcp_cert_check > sm2_verify >
+sm2_scalarmult_add > scalarmult_add_naf > build_odd_table >
+sm2_jac_add > sm2_jac_double > sm2_jac_double.part.0 > sm2_fp_mul > fe_mod_once
+
+Note: stack result is a static-analysis lower bound; ABI, interrupt and application margin remain required.
+Result: PASS

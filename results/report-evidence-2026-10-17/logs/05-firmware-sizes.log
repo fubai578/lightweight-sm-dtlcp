@@ -1,0 +1,30 @@
+Date: 2026-10-16 (Asia/Shanghai)
+Toolchain: GNU Arm 14.2.1
+
+F103 32 KiB constrained min measurement build:
+text=29720 B
+data=460 B
+bss=9248 B
+link=PASS
+
+W5500 probe:
+text=4688 B
+data=4 B
+bss=44 B
+
+W5500 DTLCP client FULL:
+text=26116 B
+data=8 B
+bss=10344 B
+
+W5500 DTLCP server FULL/PSK:
+text=26556 B
+data=8 B
+bss=10344 B
+
+W5500 DTLCP FULL then RESUME sequence:
+text=26716 B
+data=8 B
+bss=10344 B
+
+Result: all listed firmware images linked successfully within STM32F103C8T6 capacity.

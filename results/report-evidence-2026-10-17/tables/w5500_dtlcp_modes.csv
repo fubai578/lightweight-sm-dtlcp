@@ -1,0 +1,5 @@
+mode,handshake_ms,wire_bytes,sm2_ops,application_rtt_ms,early_data,result,evidence
+FULL,2274.97,1198,5,2876.90,no,pass,measured_f103_w5500_pc_log_and_swd
+RESUME,58.04,428,0,27.33,no,pass,measured_f103_w5500_pc_log_and_swd
+PSK,74.77,412,0,29.98,no,pass,measured_f103_w5500_pc_log_and_swd
+PSK_0RTT,92.65,472,0,9.46,yes,pass,measured_f103_w5500_pc_log_and_swd

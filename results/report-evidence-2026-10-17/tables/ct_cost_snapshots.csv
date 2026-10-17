@@ -1,0 +1,5 @@
+snapshot,path,ct0_mean_cycles,ct1_mean_cycles,ct_overhead,evidence,notes
+local_windows,base,154141,175704,1.140,measured_interleaved_host,"5 passes; exact value is snapshot-specific"
+local_windows,general,391349,429945,1.099,measured_interleaved_host,"5 passes; exact value is snapshot-specific"
+ci_linux_38939385334,base,227609,245782,1.080,measured_interleaved_ci,"3 passes; exact value is snapshot-specific"
+ci_linux_38939385334,general,575304,657286,1.143,measured_interleaved_ci,"3 passes; exact value is snapshot-specific"

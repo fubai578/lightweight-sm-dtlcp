@@ -1,0 +1,54 @@
+Date: 2026-10-16 (Asia/Shanghai)
+Topology: PC Realtek Ethernet <-> W5500 <-> STM32F103C8T6
+PC: 169.254.33.63/16
+Board: 169.254.33.64/16
+UDP port: 4433
+
+W5500 VERSIONR=0x04
+PHY link=1
+Negotiated link speed=100 Mbps
+Selected chip select=PB10
+
+Raw UDP echo:
+payload_bytes=36
+board_rx_count=1
+board_tx_count=1
+byte_for_byte_match=true
+
+FULL:
+handshake_ms=2274.97
+wire_bytes=1198
+sm2_ops=5
+application_reply=ACK:F103-W5500-DTLCP
+application_rtt_ms=2876.90
+
+RESUME:
+handshake_ms=58.04
+wire_bytes=428
+sm2_ops=0
+application_reply=ACK:F103-W5500-DTLCP
+application_rtt_ms=27.33
+
+PSK:
+handshake_ms=74.77
+wire_bytes=412
+sm2_ops=0
+application_reply=ACK:F103-W5500-DTLCP
+application_rtt_ms=29.98
+
+PSK 0-RTT:
+handshake_ms=92.65
+wire_bytes=472
+sm2_ops=0
+early_data_reply=ACK:F103-W5500-DTLCP
+application_reply=ACK:F103-W5500-DTLCP
+application_rtt_ms=9.46
+
+Board-side final RESUME result block:
+state=5
+handshake_rc=0
+sm2_ops=0
+last_plaintext_bytes=28
+application_success=1
+
+Result: PASS

@@ -1,0 +1,4 @@
+scenario,ref_energy_uj,opt_energy_uj,reduction,evidence,voltage_v,current_coefficient_ua_per_mhz,energy_per_cycle_nj,status
+FULL_handshake,2856,534,5.35,model_estimate_from_host_cycles,3.0,100,0.30,replace_with_measured_power_later
+RESUME_handshake,,60,,model_estimate_fixed_protocol_cost,3.0,100,0.30,replace_with_measured_power_later
+PSK_handshake,,60,,model_estimate_fixed_protocol_cost,3.0,100,0.30,replace_with_measured_power_later

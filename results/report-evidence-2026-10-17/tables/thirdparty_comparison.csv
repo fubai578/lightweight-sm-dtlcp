@@ -1,0 +1,14 @@
+category,operation,gmssl_cycles,ours_opt_cycles,ours_ref_cycles,gmssl_over_ours_opt,evidence
+SM3,hash_1KB,5109,5693,6298,0.90,measured_interleaved_host
+SM3,hash_4KB,19349,21618,24065,0.90,measured_interleaved_host
+SM3,hmac_sm3_256B,2540,2856,3110,0.89,measured_interleaved_host
+SM4,ecb_block,142,133,210,1.07,measured_interleaved_host
+SM4,cbc_1KB,10487,10080,15789,1.04,measured_interleaved_host
+SM4,ctr_1KB,10541,9937,15462,1.06,measured_interleaved_host
+SM2,base_scalar_mult,856772,171192,1533130,5.00,measured_interleaved_host
+SM2,variable_scalar_mult,861888,422201,1513538,2.04,measured_interleaved_host
+SM2,sign,1205132,271371,1689756,4.44,measured_interleaved_host
+SM2,verify,1749088,531238,2959176,3.29,measured_interleaved_host
+Fp,field_mul,181,93,273,1.95,measured_interleaved_host
+Fp,field_sqr,181,92,290,1.97,measured_interleaved_host
+Fp,field_inv,59371,30608,106649,1.94,measured_interleaved_host

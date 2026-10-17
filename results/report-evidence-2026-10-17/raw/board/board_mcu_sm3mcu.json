@@ -1,0 +1,28 @@
+{
+  "magic": "0x534d4331",
+  "version": 1,
+  "state": 2,
+  "kernels": {
+    "sm3": 4,
+    "sm4": 2,
+    "sm2": 2,
+    "ct": 0
+  },
+  "failures": 0,
+  "entropy": {
+    "rc": 0,
+    "ones_pct": 51
+  },
+  "cycles": {
+    "sm3_1KB": 76482,
+    "sm3_4KB": 290852,
+    "hmac_sm3_256B": 38144,
+    "sm4_ecb_block": 897,
+    "sm4_cbc_1KB": 71799,
+    "sm4_ctr_1KB": 68986,
+    "sm2_keygen": 3403883,
+    "sm2_sign": 4710811,
+    "sm2_verify": 11484901,
+    "sm2_ecdh": 8980823
+  }
+}
