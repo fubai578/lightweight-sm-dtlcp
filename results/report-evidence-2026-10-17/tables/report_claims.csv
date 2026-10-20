@@ -22,4 +22,3 @@ external,sm2_base_mult_vs_gmssl,5.00,x,interleaved_host,raw/host-local/thirdpart
 external,sm2_variable_mult_vs_gmssl,2.04,x,interleaved_host,raw/host-local/thirdparty_compare.md,"pure C paths; same run"
 external,sm2_verify_vs_gmssl,3.29,x,interleaved_host,raw/host-local/thirdparty_compare.md,"pure C paths; same run"
 external,sm3_1KB_vs_gmssl,0.90,x,interleaved_host,raw/host-local/thirdparty_compare.md,"value below 1 means this implementation is slower"
-power,full_handshake_energy,534,uJ,model_estimate,tables/power_estimate.csv,"not measured power; local host-cycle model"
