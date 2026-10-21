@@ -21,7 +21,7 @@ bash scripts/check_m3_dtlcp.sh
 
 ## 主机与 CI
 
-- 本机快照：x86-64，MinGW GCC 5.3，`-O2`，RDTSC。
+- 本机快照：x86-64，MinGW GCC，`-O2`，RDTSC（工具链版本随本机环境，见 `raw/host-local/` 输出头部）。
 - CI 快照：GitHub Actions Linux gcc，提交 `142da366dad81c649604a7b0fab3d2dff81c57a2`。
 - CI 运行：<https://github.com/fubai578/lightweight-sm-dtlcp/actions/runs/38939385334>。
 - GmSSL：3.1.1，双方均使用纯 C 路径，未编入 GmSSL 的高性能汇编路径。

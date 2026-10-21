@@ -240,7 +240,7 @@ def build(path):
     seg(s, M, ry, W - M, ry, color=RULE, lw=0.75)
     block(s, M, ry + 0.10, W - 2 * M, 0.24,
           [('图 1　系统分层框架。keygen 3.67× · 验签 1.83×（对端公钥 comb 表）· '
-            '常量时间代价 1.06× · 最小 Flash 20.9 KB / 最大调用路径栈深 3280 B',
+            '常量时间代价约 1.1× · 最小 Flash 20.6 KB / 最大调用路径栈深 3216 B',
             12, PRIMARY_D, False)])
     block(s, M, ry + 0.38, W - 2 * M, 0.22,
           [('口径：加速比取自同一次基准输出的同轮比值（RDTSC 绝对值跨运行不可比）。'

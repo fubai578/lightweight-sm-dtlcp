@@ -19,10 +19,9 @@ CI 地址：<https://github.com/fubai578/lightweight-sm-dtlcp/actions/runs/38939
 | `logs/03-w5500-hardware.log` | W5500 探针、UDP 回显和四种握手 | 真机 PC 日志与 SWD 互证 |
 | `logs/04-memory-gate.log` | F103 DTLCP RAM 预算与最长栈路径 | ARM 目标文件分析 |
 | `logs/05-firmware-sizes.log` | 32 KiB 约束和 W5500 固件尺寸 | ARM 链接器实测 |
-| `raw/host-local/` | 本机 x86-64 同轮基准与 GmSSL 交错对照 | 单次主机快照 |
+| `raw/host-local/` | 本机 x86-64 同轮基准、GmSSL 交错对照与 UDP 环回握手记录（`demo_scenes.log`） | 单次主机快照 |
 | `raw/ci-linux/` | 最新成功 CI 的 Linux 基准与 CT 报告 | 单次 CI 快照 |
 | `tables/` | 制图和报告引用用 CSV | 原始值或明确派生值 |
-| `legacy/` | 已过期但保留用于追溯的数据 | 禁止用于最终报告 |
 
 ## 引用规则
 

@@ -7,7 +7,7 @@
 1. **每轮操作做完后必须提交并推送到 GitHub**——不是可选项。收尾动作固定为：
    ```bash
    cd "D:/learning/密码"
-   bash scripts/run_tests.sh          # 先保绿：6 变体指纹逐位一致 + DTLCP 全绿
+   bash scripts/run_tests.sh          # 先保绿：7 变体指纹逐位一致 + DTLCP 全绿
    git add -A && git commit -m "<类型>: <做了什么>"
    git push origin main
    ```
@@ -83,7 +83,7 @@
 | CT × 预计算表 | **二者不再互斥**：CT 构建对同一张表做**全表扫描 + cmov**，恒做加法后用掩码决定是否采纳；基点路径 257dbl/78add → **51/51 + 1347 域乘，4096 标量极差 0**，性能代价 **2.8× → 1.13×**（通用 1.18×）。判据必须用**同一输入集上的均值**（比最小值会虚报成 1.7×），且必须同时看**域乘次数**（只数点加/倍点调用次数会漏掉「提前返回跳过的工作量」，见经验 24） |
 | 记录层 CTR 计数器 | 计数器块 = `iv_prefix(8)‖序号(6)‖块计数(2)`，**只有块计数自增**（`derive_ctr` + `sm4_ctr_xor_n`）；序号落在自增域内会造成跨记录密钥流复用（two-time pad）。测试逐块断言 C⊕P 唯一 |
 | API 防误用 | 套件白名单（未知套件/模式不匹配 → `E_NOSUPPORT`）；服务端校验客户端提议==本端配置；**熵源 fail-closed**：`entropy=NULL` 且未显式 `allow_deterministic_rng` → `E_NORNG` |
-| 对端公钥表 | `SMC_SM2_PEER_TABLE`（默认开）：**验签输入全为公开数据 ⇒ 无需常量时间**，故为对端公钥建 comb 表把 `tP` 变成固定基点乘 → verify **1.84×**；建表≈0.56 次验签（第 2 次起净赚）；调用方提供缓冲（构建 4KB / 缓存 2KB），与公钥绑定、错表 fail-closed |
+| 对端公钥表 | `SMC_SM2_PEER_TABLE`（默认开）：**验签输入全为公开数据 ⇒ 无需常量时间**，故为对端公钥建 comb 表把 `tP` 变成固定基点乘 → verify **1.84×**；建表≈0.65 次验签（第 2 次起净赚）；调用方提供缓冲（构建 4KB / 缓存 2KB），与公钥绑定、错表 fail-closed |
 | SM2 裁剪 | SIG（默认开）/ ENC（默认关）/ KE 仅保留 ECDH（DTLCP 用），SM2 加密、SM2KEP 可裁剪；config.h 生成裁剪尺寸对比表 |
 | DTLCP 握手模式 | FULL（ECDHE+SM2 签名认证，2 航班 1.5-RTT）、RESUME（会话恢复 1-RTT）、PSK（预共享密钥，可 0-RTT 早期数据） |
 | 记录层保护 | 标准套件 ECDHE_SM4_CBC_SM3（MAC-then-encrypt）与轻量套件 *_SM4_CTR_SM3（Encrypt-then-MAC），均 HMAC-SM3 |
@@ -144,7 +144,7 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
       ③ `bench_sct` 扩展为**通用+基点两条路径**（否则漏掉签名主路径）：CT=0 为 5–58 与 2–51，CT=1 均恒定 78/257
       ④ CI 增加"基点表与生成器一致性"断言；SCT 断言改为两条路径各计
       ⑤ **修正报告口径错误**：栈深排序字段用错导致"最大栈深 688B(fe_pow_mod)"结论错误——
-      实为 `scalarmult_add_naf` 1792B，最大调用路径 **3280B（CT 3440B）** → 任务栈建议从 ≥2KB 改为 ≥5/6KB；
+      实为 `scalarmult_add_naf` 1792B，最大调用路径 **3216 B（CT 3392 B）** → 任务栈建议从 ≥2KB 改为 ≥5/6KB；
       `power_model.py` 解析取错列（iters 当 cycles）+ FULL 握手按"5×sign"折算 → 改为按真实构成
       （2×keygen+sign+verify+ecdh），FULL 握手能耗 REF 5556µJ → OPT 2284µJ（2.43×）
       ⑥ docs/04 重写为**单一权威快照**（此前叠了三代不同主机状态的数据）
@@ -187,7 +187,7 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
       ⚠️ **该轮的 1.06× 判据有缺陷**（只数点运算调用次数，看不到"提前返回跳过的域乘"），
       真实代价见 2026-10-14 安全修复轮 ③：**1.13× / 1.18×**
       ② **验签变基点腿降级为固定基点**：依据"验签输入全为公开数据 ⇒ 无需常量时间"的不对称性，
-      实现 `sm2_peer_table_build`/`sm2_verify_with_table` → verify **1.84×**，建表≈0.56 次验签，
+      实现 `sm2_peer_table_build`/`sm2_verify_with_table` → verify **1.84×**，建表≈0.65 次验签，
       每对端缓存 2KB；新增 12 项专项测试（含错表 fail-closed、紧凑表一致、表项在曲线上）
       ③ 配套工程：comb 参数上提到 `smc_config.h`（生成器改为只做一致性校验，防参数错配）；
       `bench_sct --sweep N` 大样本恒定性门禁（CI 以退出码断言）；`build.sh` 变体宏集中为唯一来源
@@ -236,7 +236,7 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
       ⑥ **M3 上 DWT/CYCCNT 可用** → 板上 cycles 实测**不受换 M3 影响**（原报告口径担心解除）
       ⑦ `scripts/stack_depth.py` 加 `--objdump` 参数 + ARM Thumb `bl` 识别 + memo 污染修复；
          M3 栈深实测峰值 **`scalarmult_add_naf` 单帧 1712 B**（`-O2` 内联了 `sm2_fp_mul`，
-         故调用路径退化为单帧；**任务栈建议 ≥3KB，勿直接套用 x86 的 3280B**）
+         故调用路径退化为单帧；**任务栈建议 ≥3KB，勿直接套用 x86 的 3216 B**）
       ⑧ 修复三个**原有缺陷**：`cortex-m4/build.sh` 的 `.._.._x.o` 隐藏文件通配坑、
          两个 `startup_*.c` 的向量表缺 `__attribute__((used))`（会链接出 0 字节 ELF）、
          `stack_depth.py` 的 memo 残缺缓存
@@ -376,7 +376,7 @@ scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_
     ④ ARM 反汇编的符号带偏移后缀 `func+0x8`，不剥离就匹配不上 `.su` 里的纯函数名。
 31. **`-O2` 内联对栈深口径的影响**：内联会把 `sm2_fp_mul` 等小函数帧**合并进调用者**，
     于是「最大调用路径」退化为**单个大帧**（M3 实测：`scalarmult_add_naf` 单帧 1712 B）。
-    ⇒ **ARM 的栈深不能直接套用 x86 的非内联口径**（x86 为 3280 B），
+    ⇒ **ARM 的栈深不能直接套用 x86 的非内联口径**（x86 为 3216 B），
     报告里必须注明这个差别，并说明"未开启 `--no-inline` 重测"这一事实。
 32. **优化 ≠ 体积更小（MCU 上尤其如此）**：F103 实测 REF 内核 27 696 B < OPT 33 520 B。
     因为 comb 表 2 048 B 占 Flash、SM4 T-table 4 128 B 占 bss，REF 是纯代码实现无表。

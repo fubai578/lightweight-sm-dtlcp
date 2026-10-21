@@ -16,7 +16,7 @@
 2. **选择内核**：编译宏决定实现档位（`crypto/include/smc/smc_config.h`）：
    - 通用性能：`SMC_SM3_KERNEL=2`、`SMC_SM4_KERNEL=2`（T-table 4KB RAM）、`SMC_SM2_KERNEL=2`
    - F103 实测择优：`SMC_SM3_KERNEL=4`（低访存 MCU 核）+ `SMC_SM4_KERNEL=2` + `SMC_SM2_KERNEL=2`
-     （默认含**基点 comb 预计算表**：＋3096 B Flash、RAM 增量 0；不需要可 `SMC_SM2_FIXED_TABLE=0`）
+     （默认含**基点 comb 预计算表**：＋2956 B Flash、RAM 增量 0；不需要可 `SMC_SM2_FIXED_TABLE=0`）
    - 内存优先：`SMC_SM3_KERNEL=3`（栈 <100B）、`SMC_SM4_KERNEL=3`（仅 256B S-box）、
      `SMC_SM2_ENC=0`、`SMC_SM2_FIXED_TABLE=0`
    - 抗侧信道优先：`SMC_SM2_CT=1`（comb 表全表扫描选择；运算次数恒定，基点代价约 1.14×）
@@ -39,7 +39,7 @@
 | 配置 | Flash(text) | 静态 RAM | 备注 |
 |---|---|---|---|
 | 全功能（含 comb 表） | ~29.8KB | 4.1KB | 含 SM4 T-table 4KB ＋ comb 表 2KB |
-| 关 comb 表 | ~22.9KB | 4.1KB | 省 3096 B Flash |
+| 关 comb 表 | ~22.9KB | 4.1KB | 省 2956 B Flash |
 | 裁 SM2 加密 | ~28.2KB | 4.1KB | DTLCP 最小配置 |
 | 最小（SMALL/TINY + 裁 ENC/CBC + 关 comb） | ~20.4KB | **0** | 满足 <32KB Flash 约束 |
 | 常量时间标量乘 | ~28.0KB | 4.1KB | `SMC_SM2_CT=1` + comb 全表扫描 |
