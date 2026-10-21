@@ -97,7 +97,7 @@ typedef struct {
 
 /* 运行统计（demo/bench 采集） */
 typedef struct {
-    int      hs_flights;        /* 握手飞行数（RTT≈flights−1） */
+    int      hs_flights;        /* 握手阶段数（本端发/收/发各计一次；非协议"航班"数） */
     int      hs_messages;       /* 握手消息条数 */
     size_t   bytes_sent;        /* 线上字节（含头） */
     size_t   bytes_recv;
@@ -145,6 +145,13 @@ typedef struct {
     smc_entropy_fn entropy;
     void          *entropy_user;
     int            allow_deterministic_rng;   /* 仅测试/演示置 1；生产必须为 0 */
+
+    /* 0-RTT 早期数据防重放（PSK 模式）：由应用提供。
+       - 为 NULL：保持兼容（不内置持久化窗口；重放风险由应用自行兜底）；
+       - 非 NULL：服务端在解出早期数据后调用，返回非 0 视为重放 → 丢弃早期数据并计数
+         （握手继续，避免一个被重放的报文造成拒绝服务）。 */
+    int (*early_replay_check)(void *user, const uint8_t cr[32]);
+    void *early_replay_user;
 } dtlcp_cfg;
 
 /* 内部上下文（大小固定，无动态内存） */

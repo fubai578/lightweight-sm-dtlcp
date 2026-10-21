@@ -101,6 +101,10 @@ struct dtlcp_ctx {
     smc_entropy_fn entropy_fn;    /* 生产 TRNG；NULL=测试确定性路径 */
     void          *entropy_user;
 
+    /* 0-RTT 早期数据防重放钩子（见 dtlcp_cfg 注释） */
+    int (*early_replay_check)(void *user, const uint8_t cr[32]);
+    void        *early_replay_user;
+
     dtlcp_session session;        /* 恢复会话（服务端命中输出） */
     dtlcp_stats   stats;
 

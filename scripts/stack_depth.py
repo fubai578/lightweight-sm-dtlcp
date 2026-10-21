@@ -70,7 +70,7 @@ def parse_calls(objs, objdump="objdump"):
     objdump 可通过 --objdump 指定（如 arm-none-eabi-objdump）。
     原因：交叉编译 ARM 固件时，宿主 PATH 里往往只有 x86 的 objdump，
     它读不了 ARM ELF；硬编码 "objdump" 会静默返回空 → 调用图全空 →
-    栈深被低估为 0（本项目踩过，见 AGENTS.md 经验16）。
+    栈深被低估为 0（本项目踩过，教训记录见项目内部笔记）。
     """
     edges = defaultdict(set)
     for o in objs:

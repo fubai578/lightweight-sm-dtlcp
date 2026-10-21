@@ -8,7 +8,7 @@
  *
  * 方法学：每项测量跑 BENCH_ROUNDS 轮，取"最小的那一轮"作为结果
  * —— 最小值过滤系统调度与频率漂移噪声，是同机对比的稳健口径。
- * 输出 markdown 表：cycles/op、µs/op、ops/s；功耗由 scripts/power_model.py 换算。
+ * 输出 markdown 表：cycles/op、µs/op、ops/s；功耗由 scripts/power_report.py 从板端实测数据换算。
  */
 #include <stdio.h>
 #include <string.h>

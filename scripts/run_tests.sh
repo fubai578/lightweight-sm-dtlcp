@@ -1,6 +1,6 @@
 #!/bin/bash
 # run_tests.sh — 全量正确性测试（KAT + 差分 + 协议 + 负向）
-set -e
+set -eo pipefail   # 管道中的失败必须让脚本失败（否则 test | tail -1 会吞掉退出码）
 cd "$(dirname "$0")/.."
 # 平台产物后缀（MinGW 需 .exe，Linux/macOS 无后缀）
 case "$(uname -s)" in

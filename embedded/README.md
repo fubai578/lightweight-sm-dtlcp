@@ -74,4 +74,4 @@
 
 `cortex-m4/main.c` 上电后运行 SM3/SM4 标准向量自检与微基准，经 UART 打印
 `cycles/op`。将结果与 `docs/04` 中 host 数据对照即可得到目标板实测性能；
-功耗实测可用开发板电流探头（如 Nordic PPK2）替换能量模型参数。
+功耗数据由 F103 板端 DWT 实测周期数与板端供电参数（3.3 V、100 µA/MHz）计算，见 `results/report-evidence-2026-10-17/tables/power_measured.csv`。

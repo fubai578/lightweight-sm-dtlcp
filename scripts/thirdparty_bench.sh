@@ -6,26 +6,29 @@
 # 是更公平的锚点。
 #
 # 用法：
-#   bash scripts/thirdparty_bench.sh              # 下载(缓存) + 编译 + 交错测量 + 出报告
-#   GMSSL_DIR=/path/to/GmSSL-3.1.1 bash scripts/thirdparty_bench.sh   # 用本地已解压源码
+#   GMSSL_DIR=/path/to/GmSSL-3.1.1 bash scripts/thirdparty_bench.sh   # 用本地已解压源码（必需）
 #
 # 产物：bin/thirdparty_compare.md
-# 依赖：curl（下载）、gcc；无 cmake/make 也可（只手工编译所需子集）。
+# 依赖：gcc；无 cmake/make 也可（只手工编译所需子集）。
+# 说明：GmSSL 3.1.1 源码需从官方发行渠道自行获取并解压，通过 GMSSL_DIR 指定。
 set -e
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 CC=${CC:-gcc}
 GMSSL_VER=3.1.1
 CACHE=${GMSSL_CACHE:-obj/thirdparty}
-# GMSSL_DIR 只在目录确实存在时才采用；否则（含拼错路径、临时目录被清理）回退到缓存目录并自动下载，
-# 避免"用不存在的路径去找源码"这种自找的失败
+# GMSSL_DIR 必须指向已解压的 GmSSL 3.1.1 源码（本脚本不联网下载）
 if [ -n "$GMSSL_DIR" ] && [ -d "$GMSSL_DIR/src" ]; then
   SRC=$GMSSL_DIR
 else
   if [ -n "$GMSSL_DIR" ]; then
-    echo "提示：GMSSL_DIR=$GMSSL_DIR 下没有 GmSSL 源码，回退到缓存目录 $CACHE"
+    echo "错误：GMSSL_DIR=$GMSSL_DIR 下没有 GmSSL 源码"
+  else
+    echo "错误：未指定 GMSSL_DIR（需要本地 GmSSL 3.1.1 源码）"
   fi
-  SRC=$CACHE/GmSSL-$GMSSL_VER
+  echo "请从 GmSSL 官方发行渠道获取源码并解压，然后："
+  echo "  GMSSL_DIR=/path/to/GmSSL-$GMSSL_VER bash scripts/thirdparty_bench.sh"
+  exit 1
 fi
 OUT=bin/thirdparty_compare.md
 
@@ -36,20 +39,10 @@ esac
 
 mkdir -p $CACHE bin obj/thirdparty/gmssl obj/thirdparty/ours
 
-# ---------- 1. 获取源码 ----------
-if [ ! -d "$SRC" ]; then
-  echo "[1/4] 下载 GmSSL $GMSSL_VER ..."
-  TARBALL=$CACHE/gmssl-$GMSSL_VER.tar.gz
-  if [ ! -f "$TARBALL" ]; then
-    curl -sL --retry 3 --retry-delay 2 -o "$TARBALL" \
-      "https://codeload.github.com/guanzhi/GmSSL/tar.gz/refs/tags/v$GMSSL_VER"
-  fi
-  tar xzf "$TARBALL" -C $CACHE
-else
-  echo "[1/4] 使用已有源码：$SRC"
-fi
+# ---------- 1. 检查源码 ----------
+echo "[1/4] 使用源码：$SRC"
 if [ ! -d "$SRC/src" ]; then
-  echo "错误：$SRC 下找不到 GmSSL 源码（可用 GMSSL_DIR=... 指定解压目录）"
+  echo "错误：$SRC 下找不到 GmSSL 源码（用 GMSSL_DIR=... 指定解压目录）"
   exit 1
 fi
 

@@ -80,7 +80,7 @@
 | SM4 内核 | REF（字节 S-box）/ FAST（T-table 4KB +8 轮展开）/ SMALL（256B S-box 无表展开） |
 | SM2 内核 | 域算术：REF=试商长除法约减，OPT=Solinas 折叠约减（8×8 展开乘法）；标量乘：REF=二进制倍点法，OPT=**基点 comb 预计算表（k·G 专用）+ wNAF(w=4)（变基点）+ 验签交织双标量乘**，另提供常量时间全表扫描选项（SMC_SM2_CT：点运算**无条件算完 + 掩码选择**，运算次数与域乘次数对 4096 标量恒定，见 bench_sct） |
 | SM2 基点表 | `SMC_SM2_FIXED_TABLE`（OPT 时默认开，**CT 构建也开**）：t=5 → 32 项/2048B **只读**表（占 Flash，RAM 增量 0）＋代码约 2.9KB；keygen/sign 在该项上再快 2.64×/2.34×。表由源码生成，禁止手工编辑 |
-| CT × 预计算表 | **二者不再互斥**：CT 构建对同一张表做**全表扫描 + cmov**，恒做加法后用掩码决定是否采纳；基点路径 257dbl/78add → **51/51 + 1347 域乘，4096 标量极差 0**，性能代价 **2.8× → 1.13×**（通用 1.18×）。判据必须用**同一输入集上的均值**（比最小值会虚报成 1.7×），且必须同时看**域乘次数**（只数点加/倍点调用次数会漏掉「提前返回跳过的工作量」，见经验 24） |
+| CT × 预计算表 | **二者不再互斥**：CT 构建对同一张表做**全表扫描 + cmov**，恒做加法后用掩码决定是否采纳；基点路径 257dbl/78add → **51/51 + 1347 域乘，4096 标量极差 0**，性能代价 **2.8× → 1.140×**（通用 1.099×）。判据必须用**同一输入集上的均值**（比最小值会虚报成 1.7×），且必须同时看**域乘次数**（只数点加/倍点调用次数会漏掉「提前返回跳过的工作量」，见经验 24） |
 | 记录层 CTR 计数器 | 计数器块 = `iv_prefix(8)‖序号(6)‖块计数(2)`，**只有块计数自增**（`derive_ctr` + `sm4_ctr_xor_n`）；序号落在自增域内会造成跨记录密钥流复用（two-time pad）。测试逐块断言 C⊕P 唯一 |
 | API 防误用 | 套件白名单（未知套件/模式不匹配 → `E_NOSUPPORT`）；服务端校验客户端提议==本端配置；**熵源 fail-closed**：`entropy=NULL` 且未显式 `allow_deterministic_rng` → `E_NORNG` |
 | 对端公钥表 | `SMC_SM2_PEER_TABLE`（默认开）：**验签输入全为公开数据 ⇒ 无需常量时间**，故为对端公钥建 comb 表把 `tP` 变成固定基点乘 → verify **1.84×**；建表≈0.65 次验签（第 2 次起净赚）；调用方提供缓冲（构建 4KB / 缓存 2KB），与公钥绑定、错表 fail-closed |
@@ -89,7 +89,7 @@
 | 记录层保护 | 标准套件 ECDHE_SM4_CBC_SM3（MAC-then-encrypt）与轻量套件 *_SM4_CTR_SM3（Encrypt-then-MAC），均 HMAC-SM3 |
 | 密钥派生 | PRF = TLS 风格 P_hash(HMAC-SM3)；master_secret = PRF(PMS,"master secret",cr‖sr) |
 | 交叉验证 | OpenSSL 3.2 CLI（本机有）验证 SM3/SM4/SM2；标准向量由调研给出；REF vs OPT 差分测试 |
-| 评测口径 | host(x86-64) 实测 cycles/ns；Flash/RAM 用 `size`；**栈深必须用 `scripts/stack_depth.py` 算最大调用路径**（`-fstack-usage` 的单函数帧会严重低估）；功耗用能量模型（明确标注为估算） |
+| 评测口径 | host(x86-64) 实测 cycles/ns；Flash/RAM 用 `size`；**栈深必须用 `scripts/stack_depth.py` 算最大调用路径**（`-fstack-usage` 的单函数帧会严重低估）；功耗用 F103 板端实测（3.3 V，按各次运行实测动态电流换算，`scripts/power_report.py --check`） |
 | 单项优化隔离 | 新增 `notab` 构建（同 opt 内核、仅 `SMC_SM2_FIXED_TABLE=0`）→ 单项收益可在同一份基准输出内相除，不受跨会话频率状态影响 |
 | 构建 | 无 make → `scripts/build.sh`（bash + gcc）；Cortex-M 提供 arm-none-eabi Makefile（本机无交叉编译器，交付源码+构建脚本+移植说明） |
 
@@ -103,7 +103,7 @@ apps/       bench 基准（bench_crypto / bench_sct / bench_gmssl）/ demo senso
 embedded/   平台移植层(port) + Cortex-M4 裸机工程骨架
 tests/      KAT + 差分 + 协议仿真测试
 docs/       01 路径规划 / 02 系统设计 / 03 固件安全规范 / 04 测试与性能对比 / 05 硬件采购 / 06 作品设计报告 / 07 分工与推进 / 08 硬件测试操作指南
-scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_model.py
+scripts/    build.sh run_tests.sh demo_run.sh benchmark.sh size_report.sh power_report.py
             gen_fixed_base.sh（表生成/校验）stack_depth.py（最大调用路径栈深）
             thirdparty_bench.sh + compare_bench.py（GmSSL 对照，交错测量）
             ct_cost.sh + ct_cost.py（常量时间代价，交错测量）

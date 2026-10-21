@@ -48,17 +48,20 @@ static const uint8_t *g_bytes(const uint8_t **p, size_t n)
     const uint8_t *s = *p; *p += n; return s;
 }
 
-/* ================= 随机源（确定性；生产固件接 TRNG，docs/03 §4） ================= */
-static void hs_random(dtlcp_ctx *c, uint8_t *out, size_t len, const char *tag)
+/* ================= 随机源 =================
+ * 安全规则：配置了熵源（生产固件）时，熵源失败必须 fail-closed（返回 E_NORNG），
+ * 绝不回退到“由时间/计数器播种的确定性 DRBG”；未配置熵源只允许测试/演示，
+ * 且 cfg_check 已要求调用方显式设置 allow_deterministic_rng=1。 */
+static int hs_random(dtlcp_ctx *c, uint8_t *out, size_t len, const char *tag)
 {
     smc_drbg dr;
     uint8_t seed[48];
-    (void)tag;
+    size_t i, tl;
     if (c->entropy_fn) {
-        /* 生产路径：TRNG 直接出熵（cr/sr/临时私钥不可预测） */
-        if (c->entropy_fn(c->entropy_user, out, len) == 0) return;
+        if (c->entropy_fn(c->entropy_user, out, len) == 0) return DTLCP_OK;
+        return DTLCP_E_NORNG;
     }
-    size_t i, tl = strlen(tag);
+    tl = strlen(tag);
     memset(seed, 0, sizeof seed);
     for (i = 0; i < tl && i < 16; i++) seed[i] = (uint8_t)tag[i];
     memcpy(seed + 16, &c->now_us, 8);
@@ -67,6 +70,7 @@ static void hs_random(dtlcp_ctx *c, uint8_t *out, size_t len, const char *tag)
     seed[36] = (uint8_t)c->role;
     smc_drbg_seed(&dr, seed, 37);
     smc_drbg_bytes(&dr, out, len);
+    return DTLCP_OK;
 }
 
 /* ================= transcript ================= */
@@ -321,17 +325,19 @@ static void install_rx(dtlcp_ctx *c)
         dtlcp_rec_init_rx(&c->rx, c->suite, c->keys.client_mac, c->keys.client_key, c->keys.client_iv);
 }
 
-static void eph_keygen(dtlcp_ctx *c)
+static int eph_keygen(dtlcp_ctx *c)
 {
     sm2_fe d;
     sm2_pt q;
-    hs_random(c, c->eph_priv, 32, "dtlcp-eph");
+    int rc = hs_random(c, c->eph_priv, 32, "dtlcp-eph");
+    if (rc != DTLCP_OK) return rc;
     sm2_fe_from_bytes(&d, c->eph_priv);
     sm2_fn_mod(&d, &d);
     sm2_fe_to_bytes(c->eph_priv, &d);
     sm2_scalarmult_base(&q, &d);
     sm2_encode_pubkey(c->eph_pub, &q);
     c->stats.sm2_ops++;
+    return DTLCP_OK;
 }
 
 /* ================= FINISHED ================= */
@@ -364,8 +370,10 @@ static int client_full(dtlcp_ctx *c)
     dtlcp_datagram dg;
     int rc;
 
-    hs_random(c, c->cr, 32, "client-random");
-    eph_keygen(c);
+    rc = hs_random(c, c->cr, 32, "client-random");
+    if (rc != DTLCP_OK) return rc;
+    rc = eph_keygen(c);
+    if (rc != DTLCP_OK) return rc;
 
     blen = build_client_hello(c, body);
     rc = hs_send(c, &c->tx, DTLCP_HS_CLIENT_HELLO, body, blen);
@@ -449,9 +457,11 @@ static int client_full(dtlcp_ctx *c)
         rc = hs_send(c, &c->tx, DTLCP_HS_CERTIFICATE, body, (size_t)clen);
         if (rc != DTLCP_OK) return rc;
         {
-            uint8_t e[SMC_SM3_DIGEST], sv[SMC_SM2_SIG];
+            uint8_t e[SMC_SM3_DIGEST], sv[SMC_SM2_SIG], rnd[SMC_SM2_BYTES];
             cv_hash(c, c->cert.pubkey, (const char *)c->cert.subject, c->cert.subject_len, e);
-            if (sm2_sign(sv, e, c->privkey, NULL) != 0) return DTLCP_E_CRYPTO;
+            rc = hs_random(c, rnd, sizeof rnd, "sign-rnd");
+            if (rc != DTLCP_OK) return rc;
+            if (sm2_sign(sv, e, c->privkey, rnd) != 0) return DTLCP_E_CRYPTO;
             c->stats.sm2_ops++;
             body[0] = 0x01;
             memcpy(body + 1, sv, SMC_SM2_SIG);
@@ -496,10 +506,13 @@ static int server_full(dtlcp_ctx *c)
     }
     hs_absorb(c, payload, plen);
 
-    hs_random(c, c->sr, 32, "server-random");
-    hs_random(c, c->session_id, 8, "server-sid");
+    rc = hs_random(c, c->sr, 32, "server-random");
+    if (rc != DTLCP_OK) return rc;
+    rc = hs_random(c, c->session_id, 8, "server-sid");
+    if (rc != DTLCP_OK) return rc;
     c->sid_len = 8;
-    eph_keygen(c);
+    rc = eph_keygen(c);
+    if (rc != DTLCP_OK) return rc;
     if (sm2_ecdh(shared, c->eph_priv, c->peer_eph_pub) != 0) return DTLCP_E_CRYPTO;
     c->stats.sm2_ops++;
     dtlcp_derive_keys(shared, 32, c->cr, c->sr, &c->keys);
@@ -523,9 +536,11 @@ static int server_full(dtlcp_ctx *c)
 
     /* SKE（签名绑定双方 key_share） */
     {
-        uint8_t e[SMC_SM3_DIGEST], sv[SMC_SM2_SIG];
+        uint8_t e[SMC_SM3_DIGEST], sv[SMC_SM2_SIG], rnd[SMC_SM2_BYTES];
         ske_hash(c, c->cert.pubkey, (const char *)c->cert.subject, c->cert.subject_len, e);
-        if (sm2_sign(sv, e, c->privkey, NULL) != 0) return DTLCP_E_CRYPTO;
+        rc = hs_random(c, rnd, sizeof rnd, "sign-rnd");
+        if (rc != DTLCP_OK) return rc;
+        if (sm2_sign(sv, e, c->privkey, rnd) != 0) return DTLCP_E_CRYPTO;
         c->stats.sm2_ops++;
         body[0] = 0x01;
         memcpy(body + 1, sv, SMC_SM2_SIG);
@@ -577,6 +592,13 @@ static int server_full(dtlcp_ctx *c)
                         if (rc != DTLCP_OK) return rc;
                         rc = dtlcp_cert_check(&c->peer_cert, &c->ca_cert);
                         if (rc != DTLCP_OK) return rc;
+                        /* 身份绑定：ClientHello 声明的 identity 必须与客户端证书
+                           subject 一致；否则“基于 ZA 的身份绑定”只绑定了证书自身，
+                           攻击者可拿自己的证书声明受害者身份。 */
+                        if (c->identity_len == 0 ||
+                            c->peer_cert.subject_len != c->identity_len ||
+                            memcmp(c->peer_cert.subject, c->identity, c->identity_len) != 0)
+                            return DTLCP_E_VERIFY;
                         saw_cert = 1;
                         hs_absorb(c, payload, plen);
                     } else if (hst == 63) {   /* cert_verify */
@@ -616,7 +638,8 @@ static int client_resume(dtlcp_ctx *c)
     dtlcp_datagram dg;
     int rc;
 
-    hs_random(c, c->cr, 32, "client-random");
+    rc = hs_random(c, c->cr, 32, "client-random");
+    if (rc != DTLCP_OK) return rc;
     memcpy(c->session_id, c->session.session_id, c->session.sid_len);
     c->sid_len = c->session.sid_len;
 
@@ -694,7 +717,8 @@ static int server_resume(dtlcp_ctx *c, const dtlcp_session *hit)
     if (!hit || !hit->valid) return DTLCP_E_STATE;
     if (hit->sid_len != c->sid_len ||
         memcmp(hit->session_id, c->session_id, c->sid_len) != 0) return DTLCP_E_VERIFY;
-    hs_random(c, c->sr, 32, "server-random");
+    rc = hs_random(c, c->sr, 32, "server-random");
+    if (rc != DTLCP_OK) return rc;
     dtlcp_expand_keys(hit->master, c->cr, c->sr, &c->keys);
 
     blen = build_server_hello(c, body);
@@ -779,7 +803,8 @@ static int client_psk(dtlcp_ctx *c, const uint8_t *early, size_t early_len)
     dtlcp_datagram dg;
     int rc;
 
-    hs_random(c, c->cr, 32, "client-random");
+    rc = hs_random(c, c->cr, 32, "client-random");
+    if (rc != DTLCP_OK) return rc;
     c->use_early = (early && early_len) ? 1 : 0;
 
     blen = build_client_hello(c, body);
@@ -880,9 +905,17 @@ static int server_psk(dtlcp_ctx *c)
             if (rc != DTLCP_OK) return rc;
             dg.off += consumed;
         }
+        /* 防重放：应用提供钩子即强制执行；命中重放只丢弃早期数据并计数，
+           握手继续（避免重放报文变成对服务端的拒绝服务）。 */
+        if (c->early_replay_check &&
+            c->early_replay_check(c->early_replay_user, c->cr) != 0) {
+            c->stats.replays_dropped++;
+            c->pending_len = 0;
+        }
     }
 
-    hs_random(c, c->sr, 32, "server-random");
+    rc = hs_random(c, c->sr, 32, "server-random");
+    if (rc != DTLCP_OK) return rc;
     dtlcp_derive_keys(c->psk, c->psk_len, c->cr, c->sr, &c->keys);
 
     blen = build_server_hello(c, body);
@@ -983,6 +1016,8 @@ static int cfg_check(const dtlcp_ctx *c, const dtlcp_cfg *cfg)
     if (!suite_known(c->suite)) return DTLCP_E_NOSUPPORT;
     if (cfg->mode == DTLCP_MODE_PSK) {
         if (c->suite != DTLCP_SUITE_L_PSK_SM4_CTR_SM3) return DTLCP_E_NOSUPPORT;
+        /* 空 PSK（len=0）等价于“人尽皆知的密钥”，必须拒绝而不是静默使用 */
+        if (c->psk_len == 0) return DTLCP_E_PARAM;
     } else if (c->suite == DTLCP_SUITE_L_PSK_SM4_CTR_SM3) {
         return DTLCP_E_NOSUPPORT;
     }
@@ -1012,6 +1047,8 @@ static void cfg_copy(dtlcp_ctx *c, const dtlcp_cfg *cfg, uint64_t now_us)
     c->verify_peer = cfg->verify_peer;
     c->entropy_fn = cfg->entropy;
     c->entropy_user = cfg->entropy_user;
+    c->early_replay_check = cfg->early_replay_check;
+    c->early_replay_user = cfg->early_replay_user;
     if (cfg->psk && cfg->psk_len) {
         size_t n = cfg->psk_len > DTLCP_PSK_MAX ? DTLCP_PSK_MAX : cfg->psk_len;
         memcpy(c->psk, cfg->psk, n);

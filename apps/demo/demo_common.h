@@ -5,6 +5,17 @@
 #ifndef DEMO_COMMON_H
 #define DEMO_COMMON_H
 
+/* ⚠ 演示 PKI 安全边界（B7）
+ * 本文件的证书/私钥由 sm2_keygen(..., NULL) 的固定种子派生：所有设备共用同一套
+ * CA/网关/传感器密钥，仅用于“可复现演示”，**禁止用于生产**。
+ * 生产形态：每设备独立烧录密钥与证书（或使用安全元件），并在构建时定义
+ * SMC_PRODUCTION_BUILD —— 该宏会让本文件编译失败，防止固定种子 PKI 混入产品。
+ */
+#if defined(SMC_PRODUCTION_BUILD)
+#error "固定种子演示 PKI 不得用于生产构建（生产须每设备独立烧录密钥/证书）"
+#endif
+#define DTLCP_DEMO_PKI_FIXED_SEED 1
+
 #include <stdio.h>
 #include <string.h>
 #include "dtlcp_internal.h"
@@ -47,7 +58,7 @@ static const char *mode_name(int mode)
 
 static void print_stats(const char *role, int mode, const dtlcp_stats *st, uint64_t hs_us)
 {
-    printf("  [%s/%s] 握手 flights=%d 消息=%d 时延=%.2fms | 线上: 发=%lluB 收=%lluB | "
+    printf("  [%s/%s] 握手阶段=%d 握手消息=%d 时延=%.2fms | 线上: 发=%lluB 收=%lluB | "
            "SM2=%d次 SM3=%d次 | 应用: 发=%lluB 收=%lluB\n",
            role, mode_name(mode), st->hs_flights, st->hs_messages, hs_us / 1000.0,
            st->bytes_sent, st->bytes_recv, st->sm2_ops, st->sm3_ops,

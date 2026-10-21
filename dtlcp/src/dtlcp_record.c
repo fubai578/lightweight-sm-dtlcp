@@ -222,7 +222,8 @@ int dtlcp_rec_unprotect(dtlcp_rec *r, const uint8_t *in, size_t len,
     } else {
         uint8_t iv[16];
         size_t ctlen, plen;
-        uint8_t pad;
+        uint8_t pad, diff;
+        int bad = 0;
         if (len < o + 16) return DTLCP_E_FORMAT;
         memcpy(iv, in + o, 16);
         o += 16;
@@ -230,22 +231,35 @@ int dtlcp_rec_unprotect(dtlcp_rec *r, const uint8_t *in, size_t len,
         if (ctlen == 0 || (ctlen % SMC_SM4_BLOCK) != 0 || ctlen > DTLCP_RECBUF)
             return DTLCP_E_FORMAT;
         if (ctlen > cap) return DTLCP_E_PARAM;   /* 解密目标容量校验 */
+        /* 最小合法 CBC 记录 = padding(≥1 块) + MAC(32 B)；不足的直接按格式拒绝。
+           这条检查只看报文长度，不泄露“合法密文的 padding 是否正确”。 */
+        if (ctlen < DTLCP_MAC_LEN + SMC_SM4_BLOCK) return DTLCP_E_VERIFY;
         sm4_cbc_decrypt(&r->cipher_dec, iv, in + o, out, ctlen);
+        /* padding 与 MAC 合并成同一条失败路径：
+           ① padding 固定比较 16 次（不按 pad 提前退出）；
+           ② padding 错误不单独 return，仍完整计算一次 HMAC 再统一返回 E_VERIFY，
+              缩小 MAC-then-encrypt 固有的 padding oracle 时序差异。 */
         pad = out[ctlen - 1];
+        if (pad == 0 || pad > SMC_SM4_BLOCK || pad > ctlen) bad = 1;
+        diff = 0;
         {
-            /* padding 全字节校验；错误统一为 DTLCP_E_VERIFY，避免 padding oracle 区分 */
-            uint8_t bad = 0;
             size_t k;
-            if (pad == 0 || pad > SMC_SM4_BLOCK || pad > ctlen) bad = 1;
-            for (k = 0; k < SMC_SM4_BLOCK && k < ctlen; k++)
-                if (k < pad && out[ctlen - 1 - k] != pad) bad = 1;
-            if (bad) return DTLCP_E_VERIFY;
+            for (k = 0; k < SMC_SM4_BLOCK; k++) {
+                uint8_t want = (k < pad) ? pad : out[ctlen - 1 - k];
+                diff |= (uint8_t)(out[ctlen - 1 - k] ^ want);
+            }
         }
-        plen = ctlen - pad;
-        if (plen < DTLCP_MAC_LEN) return DTLCP_E_VERIFY;
-        plen -= DTLCP_MAC_LEN;
+        if (diff) bad = 1;
+        plen = (pad >= 1 && pad <= ctlen) ? (ctlen - pad) : 0;
+        if (plen < DTLCP_MAC_LEN) {
+            bad = 1;
+            plen = ctlen - DTLCP_MAC_LEN;   /* 仍算一次 MAC，保持失败路径工作量一致 */
+        } else {
+            plen -= DTLCP_MAC_LEN;          /* 去掉 MAC 后余下的就是明文 */
+        }
         if (mac_verify(r->mac_key, seqb, *type, (uint16_t)plen, out,
-                       out + plen) != 0) return DTLCP_E_VERIFY;
+                       out + plen) != 0) bad = 1;
+        if (bad) return DTLCP_E_VERIFY;
         {
             int rr = replay_update(r, seq);
             if (rr != 0) return rr;

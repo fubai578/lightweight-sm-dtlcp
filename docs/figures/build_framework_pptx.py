@@ -252,7 +252,7 @@ def build(path):
 
 # ----------------------------------------------------------------- 自检
 def qa(prs, verbose=True):
-    """溢出与重叠自检。行数估算：CJK 全角、拉丁 0.62 宽；仅比较含文字形状的包围盒。"""
+    """溢出与重叠自检。行数计算：CJK 全角、拉丁 0.62 宽；仅比较含文字形状的包围盒。"""
     def seg_w(t, pt, bold=False):
         k = 0.58 * (1.06 if bold else 1.0)
         return sum((1.0 if ord(c) > 0x2E7F else k) for c in t) * pt / 72.0

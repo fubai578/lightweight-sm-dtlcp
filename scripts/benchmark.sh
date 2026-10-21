@@ -1,5 +1,5 @@
 #!/bin/bash
-# benchmark.sh — REF vs OPT 基准对比 + 功耗估算
+# benchmark.sh — REF vs OPT 主机基准对比（功耗由板端实测数据单独生成，见 scripts/power_report.py）
 set -e
 cd "$(dirname "$0")/.."
 # 平台产物后缀（MinGW 需 .exe，Linux/macOS 无后缀）
@@ -30,7 +30,4 @@ for v in ref opt mcu notab tiny; do
   echo "" >> $OUT
 done
 
-echo "## 功耗估算（能量模型）" >> $OUT
-python scripts/power_model.py >> $OUT 2>/dev/null || echo "（power_model.py 未运行）" >> $OUT
-
-echo "结果已写入 $OUT"
+echo "结果已写入 $OUT（功耗数据见 bin/power_results.md，由 scripts/power_report.py 生成）"

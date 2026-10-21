@@ -110,8 +110,8 @@ int main(int argc, char **argv)
         g_hs_sent = st.bytes_sent;
         g_hs_recv = st.bytes_recv;
     }
-    printf("  握手开销：RTT≈%d 个数据报往返 | 握手线上 %lluB | SM2 运算 %d 次\n",
-           st.hs_flights - 1, (unsigned long long)st.bytes_sent + st.bytes_recv, st.sm2_ops);
+    printf("  握手开销：握手阶段 %d（发/收/发各一次数据报）| 握手线上 %lluB | SM2 运算 %d 次\n",
+           st.hs_flights, (unsigned long long)st.bytes_sent + st.bytes_recv, st.sm2_ops);
 
     if (early && mode == DTLCP_MODE_PSK) {
         /* 0-RTT 早期数据回显 */
