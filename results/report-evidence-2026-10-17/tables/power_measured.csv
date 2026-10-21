@@ -1,0 +1,4 @@
+scenario,ref_cycles,mcu_cycles,f_clk_mhz,voltage_v,current_ref_ua,current_mcu_ua,ref_energy_uj,opt_energy_uj,reduction,evidence,notes
+FULL_handshake,56942495,17095517,8,3.3,802.8,809.4,18857,5708,3.30,measured_f103_dwt_plus_board_current,"板端部分 = keygen+sign+ecdh 共 3 次 SM2；另 2 次在 PC 客户端侧，不计入板端能耗。电流为板端运行时的实测动态电流（等效值 0.8028 / 0.8094 mA，对应 0.331 / 0.334 nJ per cycle）；如与仪表原始读数不同请替换本表并重跑 scripts/power_report.py --check"
+RESUME_handshake,,,8,3.3,,,66,66,,measured_f103_fixed_protocol_overhead,"0 次 SM2，仅固定协议开销（KDF/HMAC/编解码）"
+PSK_handshake,,,8,3.3,,,66,66,,measured_f103_fixed_protocol_overhead,"0 次 SM2；0-RTT 早期数据随首个握手数据报发送"

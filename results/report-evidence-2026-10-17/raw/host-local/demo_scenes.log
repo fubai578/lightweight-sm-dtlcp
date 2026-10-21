@@ -1,17 +1,17 @@
 [sensor] 连接 127.0.0.1:9011 mode=FULL ...
-  [SN/FULL] 握手 flights=3 消息=8 时延=5.19ms | 线上: 发=604B 收=594B | SM2=5次 SM3=0次 | 应用: 发=0B 收=0B
+  [SN/FULL] 握手 flights=3 消息=8 时延=2.26ms | 线上: 发=604B 收=594B | SM2=5次 SM3=0次 | 应用: 发=0B 收=0B
   握手开销：RTT≈2 个数据报往返 | 握手线上 1198B | SM2 运算 5 次
   样例：TELEMETRY:0:temp=23.0,hum=60 → ACK:0:temp=23.0,hum=60
-  应用 3 条遥测：RTT 平均=0.67ms 最大=2.01ms | 每消息线上≈140B
+  应用 3 条遥测：RTT 平均=0.00ms 最大=0.00ms | 每消息线上≈140B
   会话已缓存 → bin/sess_sn.bin（可用于 RESUME）
 [sensor] 连接 127.0.0.1:9011 mode=RESUME ...
-  [SN/RESUME] 握手 flights=3 消息=4 时延=0.00ms | 线上: 发=222B 收=206B | SM2=0次 SM3=0次 | 应用: 发=0B 收=0B
+  [SN/RESUME] 握手 flights=3 消息=4 时延=2.46ms | 线上: 发=222B 收=206B | SM2=0次 SM3=0次 | 应用: 发=0B 收=0B
   握手开销：RTT≈2 个数据报往返 | 握手线上 428B | SM2 运算 0 次
   样例：TELEMETRY:0:temp=23.0,hum=60 → ACK:0:temp=23.0,hum=60
   应用 3 条遥测：RTT 平均=0.00ms 最大=0.00ms | 每消息线上≈140B
 [sensor] 连接 127.0.0.1:9011 mode=PSK ...
-  [SN/PSK] 握手 flights=3 消息=4 时延=1.51ms | 线上: 发=276B 收=198B | SM2=0次 SM3=0次 | 应用: 发=0B 收=0B
+  [SN/PSK] 握手 flights=3 消息=4 时延=0.82ms | 线上: 发=276B 收=198B | SM2=0次 SM3=0次 | 应用: 发=0B 收=0B
   握手开销：RTT≈2 个数据报往返 | 握手线上 474B | SM2 运算 0 次
   0-RTT 早期数据已送达并回显：ACK:etry:ok
   样例：TELEMETRY:0:temp=23.0,hum=60 → ACK:0:temp=23.0,hum=60
-  应用 3 条遥测：RTT 平均=0.34ms 最大=1.01ms | 每消息线上≈158B
+  应用 3 条遥测：RTT 平均=0.00ms 最大=0.00ms | 每消息线上≈158B

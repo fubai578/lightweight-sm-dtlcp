@@ -22,6 +22,7 @@ CI 地址：<https://github.com/fubai578/lightweight-sm-dtlcp/actions/runs/38939
 | `raw/host-local/` | 本机 x86-64 同轮基准、GmSSL 交错对照与 UDP 环回握手记录（`demo_scenes.log`） | 单次主机快照 |
 | `raw/ci-linux/` | 最新成功 CI 的 Linux 基准与 CT 报告 | 单次 CI 快照 |
 | `tables/` | 制图和报告引用用 CSV | 原始值或明确派生值 |
+| `tables/power_measured.csv` | F103 板端握手能耗（按板端实测电流换算） | 板端实测 |
 
 ## 引用规则
 
@@ -30,7 +31,9 @@ CI 地址：<https://github.com/fubai578/lightweight-sm-dtlcp/actions/runs/38939
 - 主机 cycles 只能在同一个文件、同一次运行内部求比值，不可拼接两次快照。
 - CT 的安全结论引用 4096 个标量下点加、倍点、域乘次数极差均为 0；耗时只写
   “约 1.1 倍”，若写精确值必须同时注明具体快照。
-- 本目录只收录实测或由实测派生的数据；功耗模型估算不收录，报告引用时必须标注为“模型估算”。
+- 本目录只收录实测或由实测派生的数据。功耗按 F103 板端实测动态电流换算（3.3 V），
+  引用时须连同电压、电流与“板端 3 次 SM2”口径一并说明；`scripts/power_model.py`
+  的主机能量模型只作对照，不作为报告结论。
 - RAM 的 6256 B 是扣除协议上下文、静态区与静态栈下界后的预算余量，
   尚未扣除中断、ABI 和应用缓冲，不是最终可用内存。
 
