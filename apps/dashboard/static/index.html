@@ -27,6 +27,11 @@
         <div class="connection-label"><span class="status-dot" id="runDot"></span><div><strong id="runStatus">尚未接入设备</strong><small id="runHint">数据就绪后将在此实时显示</small></div></div>
         <div class="connection-controls"><label>握手模式<select id="mode"><option value="full">FULL · 完整握手</option><option value="resume">RESUME · 会话恢复</option></select></label><button id="settingsButton" class="button text-button"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg>连接设置</button><button id="startButton" class="button primary"><span class="play-symbol">▶</span>启动网关</button><button id="stopButton" class="button secondary" hidden>停止接收</button></div>
       </section>
+      <section class="panel records-panel">
+        <div class="section-title records-title"><h2>通信事件记录</h2><span id="recordCount" class="count-badge">0</span><div class="record-tools"><div class="filter-tabs" aria-label="记录筛选"><button class="active" data-filter="all">全部</button><button data-filter="business">业务收发</button><button data-filter="session">会话事件</button></div><label class="search-box"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="search" placeholder="搜索内容或事件" aria-label="搜索记录"></label><button id="pauseButton" class="icon-button" title="暂停画面更新" aria-label="暂停画面更新"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button></div></div>
+        <div class="table-scroll"><table><thead><tr><th>时间</th><th>事件 / 结果</th><th>方向 / 来源</th><th>接收序号</th><th>字节</th><th>内容与结果</th></tr></thead><tbody id="records"></tbody></table><div id="recordsEmpty" class="records-empty"><svg viewBox="0 0 32 32"><path d="M7 5h18v22H7Z M11 11h10m-10 5h10m-10 5h6"/></svg><strong>暂无通信记录</strong><span>接入数据后，握手、遥测与 ACK 事件将按时间排列。</span></div></div>
+        <div class="records-footer"><span id="recordFooter">等待真实网关事件</span><span>时间为本机事件接收时间 · 最多保留 2,000 条</span></div>
+      </section>
       <section class="pipeline panel" aria-label="实时通信链路">
         <div class="section-title"><h2>安全通信链路</h2><span class="subtle-label">开发板终端 → 本机网关 → 实时观测</span><span id="sourceBadge" class="source-badge">等待接入</span></div>
         <div class="pipeline-track">
@@ -82,11 +87,6 @@
         <div class="section-title"><h2>本轮总结与证据来源</h2><span class="panel-meta" id="summaryStatus">尚无实验</span></div>
         <div class="summary-layout"><div><dl class="detail-grid summary-grid"><div><dt>实验编号</dt><dd id="summaryRun">—</dd></div><div><dt>运行时长</dt><dd id="summaryDuration">—</dd></div><div><dt>平均应用 RTT</dt><dd>— <small>ms</small></dd></div><div><dt>最大应用 RTT</dt><dd>— <small>ms</small></dd></div><div><dt>应用接收 / 发送</dt><dd id="summaryAppBytes">— / — B</dd></div><div><dt>业务闭环</dt><dd id="summaryBusiness">等待遥测与 ACK 事件</dd></div></dl><p class="panel-footnote">ACK 仅表示网关已发送。应用 RTT 需要终端侧对应消息的计时反馈，不能用网关处理耗时代替。</p></div>
         <div class="evidence-box"><h3>数据来源</h3><dl><div><dt>本轮网关数据</dt><dd id="evidenceGateway">未接入</dd></div><div><dt>MCU 性能证据</dt><dd>未加载</dd></div><div><dt>测试硬件 / 固件版本</dt><dd id="evidenceHardware">—</dd></div><div><dt>输入条件 / 对照版本</dt><dd id="evidenceInput">—</dd></div></dl><p><span id="evidenceNote">当前未加载性能基准；业务来源将在接入后标注。</span></p></div></div>
-      </section>
-      <section class="panel records-panel">
-        <div class="section-title records-title"><h2>通信事件记录</h2><span id="recordCount" class="count-badge">0</span><div class="record-tools"><div class="filter-tabs" aria-label="记录筛选"><button class="active" data-filter="all">全部</button><button data-filter="business">业务收发</button><button data-filter="session">会话事件</button></div><label class="search-box"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="search" placeholder="搜索内容或事件" aria-label="搜索记录"></label><button id="pauseButton" class="icon-button" title="暂停画面更新" aria-label="暂停画面更新"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button></div></div>
-        <div class="table-scroll"><table><thead><tr><th>时间</th><th>事件 / 结果</th><th>方向 / 来源</th><th>接收序号</th><th>字节</th><th>内容与结果</th></tr></thead><tbody id="records"></tbody></table><div id="recordsEmpty" class="records-empty"><svg viewBox="0 0 32 32"><path d="M7 5h18v22H7Z M11 11h10m-10 5h10m-10 5h6"/></svg><strong>暂无通信记录</strong><span>接入数据后，握手、遥测与 ACK 事件将按时间排列。</span></div></div>
-        <div class="records-footer"><span id="recordFooter">等待真实网关事件</span><span>时间为本机事件接收时间 · 最多保留 2,000 条</span></div>
       </section>
       <footer class="page-footer"><span><i></i>本地观测 · 仅显示实际网关事件</span><span>资源受限物联网终端轻量级国密算法优化与 DTLCP 国密改造实现</span></footer>
     </main>
