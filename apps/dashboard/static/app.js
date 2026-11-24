@@ -22,6 +22,12 @@ function step(id, done, text) {
   $(id).classList.toggle('done',done);
   $(id+'Text').textContent = text;
 }
+function renderConfiguration() {
+  $('configuredPeer').textContent = settings.peer || '未指定';
+  $('configuredPort').replaceChildren(document.createTextNode(settings.udp_port+' '));
+  const note = document.createElement('small'); note.textContent = '尚未监听'; $('configuredPort').append(note);
+  $('configuredMode').textContent = modes[$('mode').value];
+}
 function renderRecords() {
   const query = $('search').value.trim().toLowerCase();
   const rows = allEvents.filter(e => (filter === 'all' || (filter === 'business' ? business.has(e.type) : e.type !== 'wire' && !business.has(e.type)))
@@ -35,6 +41,7 @@ function renderRecords() {
     const tr = document.createElement('tr');
     const values = [timeLabel(e.timestamp),names[e.type] || e.type,
       e.type === 'wire' ? (e.direction === 'rx' ? '终端 → 网关' : '网关 → 终端') : e.type === 'telemetry' ? '终端 → 网关' : e.type === 'ack_sent' ? '网关 → 终端' : '本机网关',
+      e.message_id ?? '—',
       e.bytes == null ? '—' : number(e.bytes),
       e.text || (e.type === 'wire' ? 'UDP 数据报元信息（不显示原始载荷）' : e.type === 'handshake' ? `握手完成 · SM2 ${e.sm2_ops} 次 · ${(e.elapsed_us/1000).toFixed(2)} ms` : '—')];
     values.forEach((value,i) => {
@@ -57,7 +64,7 @@ function render() {
   const running = activeStates.has(status);
   const ready = allEvents.some(e => e.type === 'ready');
   const latest = [...allEvents].reverse().find(e => e.type === 'telemetry');
-  const ack = latest && allEvents.find(e => e.id > latest.id && e.type === 'ack_sent');
+  const ack = latest && latest.message_id != null && allEvents.find(e => e.type === 'ack_sent' && e.message_id === latest.message_id);
   const statusLabels = {idle:'尚未接入设备',starting:'正在启动网关',waiting:'网关就绪 · 等待终端',connected:'安全会话已建立',complete:'本轮接收完成',error:'实验未完成',stopped:'网关已停止',stopping:'正在停止接收'};
   $('runStatus').textContent = statusLabels[status] || status;
   $('runHint').textContent = state.error || (status === 'idle' ? '数据就绪后将在此实时显示' : status === 'waiting' ? '等待真实终端发送握手请求' : status === 'complete' ? '本轮真实事件已保留，可导出记录' : status === 'connected' ? '正在接收终端业务与网关事件' : '业务数据由本机 C 网关提供');
@@ -86,6 +93,7 @@ function render() {
   $('telemetryLive').hidden = !latest;
   if (latest) {
     $('payload').textContent = latest.text;
+    $('payloadSequence').textContent = latest.message_id ?? '—';
     $('payloadBytes').textContent = `${number(latest.bytes)} B`;
     $('payloadTime').textContent = timeLabel(latest.timestamp);
     $('payloadTimestamp').textContent = timeLabel(latest.timestamp);
@@ -158,11 +166,12 @@ $('settingsForm').addEventListener('submit',e => {
     toast('请填写有效的开发板 IPv4 地址，或留空。');return;
   }
   settings = {peer,udp_port:Number($('udpPort').value),count:Number($('messageCount').value)};
+  renderConfiguration();
   $('settingsDialog').close();toast('连接设置已保存，尚未启动网关。');
 });
 $('guideButton').addEventListener('click',() => $('guideDialog').showModal());
 document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click',() => $(button.dataset.close).close()));
-$('mode').addEventListener('change',() => { if (!state || !activeStates.has(state.status)) $('sessionMode').textContent=modes[$('mode').value]; });
+$('mode').addEventListener('change',() => { renderConfiguration(); if (!state || !activeStates.has(state.status)) $('sessionMode').textContent=modes[$('mode').value]; });
 $('presentButton').addEventListener('click',() => {
   const focused = document.body.classList.toggle('focus-mode');
   $('presentButton').lastChild.textContent = focused ? '退出专注' : '专注展示';
@@ -197,4 +206,4 @@ $('exportButton').addEventListener('click',async () => {
   } catch(error){toast(error.message);}
 });
 function clock(){ $('clock').textContent=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date()); }
-clock();setInterval(clock,1000);poll();
+renderConfiguration();clock();setInterval(clock,1000);poll();
