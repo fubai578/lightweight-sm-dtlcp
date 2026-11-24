@@ -375,7 +375,86 @@ void sm2_fp_mul(sm2_fe *r, const sm2_fe *a, const sm2_fe *b)
 #error "bad SMC_SM2_KERNEL"
 #endif
 
+#if SMC_SM2_KERNEL == SMC_KERNEL_OPT && SMC_SM2_DEDICATED_SQR
+/* Column-wise square: 8 diagonal + 28 distinct off-diagonal products.
+ * A 96-bit accumulator holds up to eight 64-bit products plus carry (<2^67).
+ * Cross terms are doubled with their 65th bit explicitly added to c2. Indices and carry propagation have fixed structure.
+ * Input is completely consumed before reduction writes r, so r==a is safe. */
+void sm2_fp_sqr(sm2_fe *r, const sm2_fe *a)
+{
+    uint32_t x[16], c0=0, c1=0, c2=0;
+    const uint32_t *A=a->w;
+    SMC_OP_MUL(); /* Preserve the existing field-operation counter semantics. */
+#define SQR_ACCUM(P) do { \
+    uint64_t lo=(uint64_t)c0+(uint32_t)(P); \
+    uint64_t hi=(uint64_t)c1+((P)>>32)+(lo>>32); \
+    c0=(uint32_t)lo; c1=(uint32_t)hi; c2+=(uint32_t)(hi>>32); \
+} while(0)
+#define SQR_DIAG(I) do { uint64_t p=(uint64_t)A[I]*A[I]; SQR_ACCUM(p); } while(0)
+#define SQR_CROSS(I,J) do { uint64_t p=(uint64_t)A[I]*A[J]; \
+    uint64_t doubled=p<<1; c2+=(uint32_t)(p>>63); SQR_ACCUM(doubled); } while(0)
+#define SQR_STORE(K) do { x[K]=c0; c0=c1; c1=c2; c2=0; } while(0)
+    SQR_DIAG(0);
+    SQR_STORE(0);
+    SQR_CROSS(0,1);
+    SQR_STORE(1);
+    SQR_CROSS(0,2);
+    SQR_DIAG(1);
+    SQR_STORE(2);
+    SQR_CROSS(0,3);
+    SQR_CROSS(1,2);
+    SQR_STORE(3);
+    SQR_CROSS(0,4);
+    SQR_CROSS(1,3);
+    SQR_DIAG(2);
+    SQR_STORE(4);
+    SQR_CROSS(0,5);
+    SQR_CROSS(1,4);
+    SQR_CROSS(2,3);
+    SQR_STORE(5);
+    SQR_CROSS(0,6);
+    SQR_CROSS(1,5);
+    SQR_CROSS(2,4);
+    SQR_DIAG(3);
+    SQR_STORE(6);
+    SQR_CROSS(0,7);
+    SQR_CROSS(1,6);
+    SQR_CROSS(2,5);
+    SQR_CROSS(3,4);
+    SQR_STORE(7);
+    SQR_CROSS(1,7);
+    SQR_CROSS(2,6);
+    SQR_CROSS(3,5);
+    SQR_DIAG(4);
+    SQR_STORE(8);
+    SQR_CROSS(2,7);
+    SQR_CROSS(3,6);
+    SQR_CROSS(4,5);
+    SQR_STORE(9);
+    SQR_CROSS(3,7);
+    SQR_CROSS(4,6);
+    SQR_DIAG(5);
+    SQR_STORE(10);
+    SQR_CROSS(4,7);
+    SQR_CROSS(5,6);
+    SQR_STORE(11);
+    SQR_CROSS(5,7);
+    SQR_DIAG(6);
+    SQR_STORE(12);
+    SQR_CROSS(6,7);
+    SQR_STORE(13);
+    SQR_DIAG(7);
+    SQR_STORE(14);
+    x[15]=c0;
+#undef SQR_STORE
+#undef SQR_CROSS
+#undef SQR_DIAG
+#undef SQR_ACCUM
+    fe_reduce_solinas(r->w,x);
+}
+#else
 void sm2_fp_sqr(sm2_fe *r, const sm2_fe *a) { sm2_fp_mul(r, a, a); }
+#endif
 
 /* ============================ Fn（mod n） ============================ */
 void sm2_fn_mul(sm2_fe *r, const sm2_fe *a, const sm2_fe *b)
@@ -457,10 +536,14 @@ static void fe_pow_mod(sm2_fe *r, const sm2_fe *a, const sm2_fe *e, int mod_p)
             uint32_t nib = (e->w[w] >> (unsigned)i) & 0xFu;
             if (started) {
                 /* 每窗口 4 次平方（acc = acc^16） */
-                mul_mod_m(&acc, &acc, &acc, mod_p);
-                mul_mod_m(&acc, &acc, &acc, mod_p);
-                mul_mod_m(&acc, &acc, &acc, mod_p);
-                mul_mod_m(&acc, &acc, &acc, mod_p);
+                if (mod_p) sm2_fp_sqr(&acc, &acc);
+                else sm2_fn_mul(&acc, &acc, &acc);
+                if (mod_p) sm2_fp_sqr(&acc, &acc);
+                else sm2_fn_mul(&acc, &acc, &acc);
+                if (mod_p) sm2_fp_sqr(&acc, &acc);
+                else sm2_fn_mul(&acc, &acc, &acc);
+                if (mod_p) sm2_fp_sqr(&acc, &acc);
+                else sm2_fn_mul(&acc, &acc, &acc);
             }
             if (nib) {
                 sm2_fe t;

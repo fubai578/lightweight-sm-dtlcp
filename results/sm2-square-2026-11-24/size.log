@@ -1,0 +1,4 @@
+   text	   data	    bss	    dec	    hex	filename
+11280	0	0	11280	2c10	D:\������\lightweight-sm-dtlcp\bin\sm2-sqr\final\old0.o	old0.o
+12580	0	0	12580	3124	D:\������\lightweight-sm-dtlcp\bin\sm2-sqr\final\new0.o	new0.o
+24532	64	336	24932	6164	D:\������\lightweight-sm-dtlcp\bin\sm2-sqr\final\ab.elf	ab.elf

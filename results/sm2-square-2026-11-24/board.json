@@ -1,0 +1,52 @@
+{
+  "baseline_ref": "01faaa8",
+  "compiler": "arm-none-eabi-gcc.exe (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119",
+  "flags": [
+    "-std=c99",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-fstack-usage",
+    "-Icrypto/include",
+    "-Icrypto/src",
+    "-DSMC_SM2_ENC=0",
+    "-mcpu=cortex-m3",
+    "-mthumb",
+    "-ffreestanding",
+    "-DSQR_BOARD"
+  ],
+  "operations": [
+    "fp_square",
+    "fp_inverse",
+    "public_key",
+    "sign",
+    "verify",
+    "ecdh",
+    "fp_mul_self"
+  ],
+  "method": "same image; five alternating-order samples, minimum; square and multiply 64 repetitions",
+  "failures": 0,
+  "checks": 2057,
+  "before": [
+    2013,
+    685545,
+    3346711,
+    4750127,
+    11543306,
+    9033395,
+    2063
+  ],
+  "after": [
+    1840,
+    622565,
+    3163586,
+    4563489,
+    10951427,
+    8497285,
+    2063
+  ],
+  "firmware_sha256": "015716041f393f284b3995e8a2a86977cfa454d74b7c2a934113d229f80303dc",
+  "source_sha256": "82d594a8d4ec5ccd12099ff168fd5c6a5efb2d6cb84be2db2dc3b0577ecb2bc0"
+}

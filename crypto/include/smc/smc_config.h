@@ -57,6 +57,11 @@
 #define SMC_SM2_KERNEL SMC_KERNEL_OPT
 #endif
 
+/* OPT field squaring: fixed 36-product symmetric square (0 keeps mul(a,a)). */
+#ifndef SMC_SM2_DEDICATED_SQR
+#define SMC_SM2_DEDICATED_SQR 1
+#endif
+
 /* SM2 标量乘常量时间变体（抗时序/SPA，性能约 2x 代价） */
 #ifndef SMC_SM2_CT
 #define SMC_SM2_CT 0
