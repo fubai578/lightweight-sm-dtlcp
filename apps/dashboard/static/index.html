@@ -25,7 +25,7 @@
       </section>
       <section class="connection-strip" aria-label="连接控制">
         <div class="connection-label"><span class="status-dot" id="runDot"></span><div><strong id="runStatus">尚未接入设备</strong><small id="runHint">数据就绪后将在此实时显示</small></div></div>
-        <div class="connection-controls"><label>握手模式<select id="mode"><option value="full">FULL · 完整握手</option><option value="resume">RESUME · 会话恢复</option><option value="psk">PSK · 预共享密钥</option><option value="early">PSK · 0-RTT</option></select></label><button id="settingsButton" class="button text-button"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg>连接设置</button><button id="startButton" class="button primary"><span class="play-symbol">▶</span>启动网关</button><button id="stopButton" class="button secondary" hidden>停止接收</button></div>
+        <div class="connection-controls"><label>握手模式<select id="mode"><option value="full">FULL · 完整握手</option><option value="resume">RESUME · 会话恢复</option></select></label><button id="settingsButton" class="button text-button"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg>连接设置</button><button id="startButton" class="button primary"><span class="play-symbol">▶</span>启动网关</button><button id="stopButton" class="button secondary" hidden>停止接收</button></div>
       </section>
       <section class="pipeline panel" aria-label="实时通信链路">
         <div class="section-title"><h2>安全通信链路</h2><span class="subtle-label">开发板终端 → 本机网关 → 实时观测</span><span id="sourceBadge" class="source-badge">等待接入</span></div>
@@ -73,9 +73,9 @@
         </section>
         <section class="panel security-panel">
           <div class="section-title"><h2>安全验证</h2><span class="panel-meta" id="securityStatus">尚无验证事件</span></div>
-          <dl class="security-results"><div><dt>记录解保护成功</dt><dd id="securityAccepted">—</dd></div><div><dt>无效记录被拒绝</dt><dd>— <small>条</small></dd></div><div><dt>重放记录被拒绝</dt><dd>— <small>条</small></dd></div><div><dt>最近拒绝原因</dt><dd>—</dd></div></dl>
-          <div class="security-actions"><button class="button secondary" disabled>重放测试 · 尚未接入</button><button class="button secondary" disabled>篡改测试 · 尚未接入</button></div>
-          <p class="panel-footnote">验证结果仅由真实协议事件更新。测试入口在接入前保持禁用。</p>
+          <dl class="security-results"><div><dt>记录解保护成功</dt><dd id="securityAccepted">—</dd></div><div><dt>篡改副本被拒绝</dt><dd id="tamperRejected">—</dd></div><div><dt>重放记录被拒绝</dt><dd id="replayRejected">—</dd></div><div><dt>最近协议返回码</dt><dd id="securityReason">—</dd></div></dl>
+          <div class="security-actions"><button id="replayButton" class="button secondary" disabled>重放测试</button><button id="tamperButton" class="button secondary" disabled>篡改测试</button></div>
+          <p class="panel-footnote"><span id="securityHint">等待真实终端记录。测试在网关本地提交捕获记录的副本，不冒充外部网络攻击。</span></p>
         </section>
       </div>
       <section class="panel summary-panel">
@@ -91,7 +91,7 @@
       <footer class="page-footer"><span><i></i>本地观测 · 仅显示实际网关事件</span><span>资源受限物联网终端轻量级国密算法优化与 DTLCP 国密改造实现</span></footer>
     </main>
   </div>
-  <dialog id="settingsDialog"><form id="settingsForm"><div class="dialog-heading"><div><p class="eyebrow">GATEWAY CONFIGURATION</p><h2>连接设置</h2></div><button type="button" class="icon-button" data-close="settingsDialog" aria-label="关闭">✕</button></div><p class="dialog-intro">开发板作为终端，电脑作为网关。保存设置不会连接设备。</p><label class="field">开发板 IPv4 地址 <small>可选；填写后网关发送网络探测包，以建立防火墙返回路径</small><input id="peer" placeholder="留空时等待终端主动连接" autocomplete="off"></label><div class="field-row"><label class="field">UDP 端口<input id="udpPort" type="number" min="1024" max="65535" value="4433" required></label><label class="field">本轮接收条数<input id="messageCount" type="number" min="1" max="100" value="12" required></label></div><p class="field-help">完整握手后才可在同一连接配置下恢复会话。0-RTT 模式另接收一条早期数据。终端模式与条数须保持一致。</p><div class="dialog-actions"><button type="button" class="button secondary" data-close="settingsDialog">取消</button><button class="button primary" type="submit">保存设置</button></div></form></dialog>
+  <dialog id="settingsDialog"><form id="settingsForm"><div class="dialog-heading"><div><p class="eyebrow">GATEWAY CONFIGURATION</p><h2>连接设置</h2></div><button type="button" class="icon-button" data-close="settingsDialog" aria-label="关闭">✕</button></div><p class="dialog-intro">开发板作为终端，电脑作为网关。保存设置不会连接设备。</p><label class="field">开发板 IPv4 地址 <small>可选；填写后网关发送网络探测包，以建立防火墙返回路径</small><input id="peer" placeholder="留空时等待终端主动连接" autocomplete="off"></label><div class="field-row"><label class="field">UDP 端口<input id="udpPort" type="number" min="1024" max="65535" value="4433" required></label><label class="field">本轮接收条数<input id="messageCount" type="number" min="1" max="100" value="12" required></label></div><p class="field-help">完整握手后才可在同一连接配置下恢复会话。终端模式与条数须保持一致。</p><div class="dialog-actions"><button type="button" class="button secondary" data-close="settingsDialog">取消</button><button class="button primary" type="submit">保存设置</button></div></form></dialog>
   <dialog id="guideDialog"><div class="dialog-heading"><div><p class="eyebrow">RECORDING GUIDE</p><h2>演示录制指南</h2></div><button class="icon-button" data-close="guideDialog" aria-label="关闭">✕</button></div><p class="dialog-intro">当前支持 F103 + W5500 终端 FULL 与 RESUME 模式。终端固件每轮真实发送 12 条在线状态，不填充温湿度或历史演示数据。</p><ol class="guide-list"><li><strong>准备链路</strong><p>连接开发板与网络，确认终端固件、握手模式和网关配置一致。</p></li><li><strong>启动网关</strong><p>FULL 启动后复位终端；RESUME 不复位，运行恢复脚本触发，展示缓存复用过程。</p></li><li><strong>展示业务</strong><p>观察真实遥测、记录解保护结果和网关 ACK；网关发送成功不代表终端已收到回执。</p></li><li><strong>整理画面</strong><p>使用“专注展示”与全屏；需要讲解时暂停画面更新，后台仍持续接收。</p></li><li><strong>保存本轮记录</strong><p>导出公开事件 JSON。导出内容包含业务明文，不包含密钥和会话缓存。</p></li></ol></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
 </body>

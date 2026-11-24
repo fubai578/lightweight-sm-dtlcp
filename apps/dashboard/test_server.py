@@ -51,6 +51,32 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(caught.exception.code,400)
         self.assertFalse(server.EXPERIMENT.snapshot()["resume_available"])
 
+    def test_security_rejects_invalid_action_or_missing_record(self):
+        for body,code in ((b'{"test":"invalid"}',400),(b'{"test":"replay"}',409)):
+            with self.assertRaises(HTTPError) as caught:
+                self.request("/api/security-test",body,{"Content-Type":"application/json"})
+            self.assertEqual(caught.exception.code,code)
+        self.assertEqual(server.EXPERIMENT.snapshot()["security_results"],[])
+
+    def test_security_request_is_not_a_result(self):
+        from unittest.mock import Mock
+        experiment=server.Experiment()
+        try:
+            experiment.proc=Mock()
+            experiment.proc.poll.return_value=None
+            experiment.status="complete"
+            experiment.metrics["received"]=1
+            experiment.security_test({"test":"tamper"})
+            snapshot=experiment.snapshot()
+            self.assertEqual(snapshot["security_results"],[])
+            self.assertNotIn("tamper_rejected",snapshot["metrics"])
+            self.assertIsNotNone(snapshot["security_pending"])
+            with self.assertRaises(RuntimeError):experiment.security_test({"test":"replay"})
+            experiment.publish(dict(type="security_result",test="tamper",request_id=1,code=-5,passed=True,state_unchanged=True))
+            self.assertIsNone(experiment.snapshot()["security_pending"])
+            self.assertEqual(experiment.snapshot()["metrics"]["tamper_rejected"],1)
+        finally:experiment.session_dir.cleanup()
+
     def test_cross_origin_and_rebound_host_rejected(self):
         for headers in ({"Origin":"https://example.invalid"}, {"Host":"example.invalid"}):
             with self.assertRaises(HTTPError) as caught:

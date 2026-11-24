@@ -34,6 +34,9 @@ class Experiment:
         self.cancelled = False
         self.started = None
         self.ended = None
+        self.security_pending = None
+        self.security_request = 0
+        self.security_results = []
         self.cache_ready = False
         self.session_dir = tempfile.TemporaryDirectory(prefix="dtlcp-resume-")
 
@@ -57,14 +60,30 @@ class Experiment:
             elif kind == "ack_sent":
                 self.metrics["acks"] = self.metrics.get("acks",0)+1
                 self.metrics["app_sent"] = self.metrics.get("app_sent",0)+event["bytes"]
+            elif kind == "complete":
+                if self.metrics.get("received")==self.config.get("count") and self.metrics.get("acks")==self.config.get("count"):
+                    self.status = "complete"
+                    self.cache_ready = True
+                    self.ended = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+            elif kind == "security_result":
+                if self.security_pending and event.get("request_id")==self.security_pending["id"]:
+                    self.security_pending = None
+                self.security_results.append(dict(event))
+                key = "tamper_rejected" if event.get("test")=="tamper" else "replay_rejected"
+                if event.get("passed") is True:
+                    self.metrics[key] = self.metrics.get(key,0)+1
             elif kind == "error":
                 self.error = event.get("text","gateway error")
+                self.status = "error"
+                self.cache_ready = False
 
     def snapshot(self, after=0):
         with self.lock:
             return dict(run_id=self.run_id,cursor=self.seq,status=self.status,
                         config=dict(self.config),metrics=dict(self.metrics),handshake=self.handshake,
-                        error=self.error,resume_available=self.cache_ready,events=[dict(e) for e in self.events if e["id"]>after],
+                        error=self.error,resume_available=self.cache_ready,
+                        security_available=bool(self.proc and self.proc.poll() is None and self.metrics.get("received",0)>0 and self.status in ("connected","complete")),
+                        security_pending=self.security_pending,security_results=list(self.security_results),events=[dict(e) for e in self.events if e["id"]>after],
                         started=self.started,ended=self.ended,source="board" if self.run_id else None,
                         payload_origin="firmware_status_report" if self.run_id else None)
 
@@ -84,6 +103,11 @@ class Experiment:
         exe = root/"bin"/("dtlcp_gateway.exe" if os.name=="nt" else "dtlcp_gateway")
         if not exe.is_file():
             raise ValueError("请先构建带事件输出的 C 网关")
+        if self.security_pending:
+            raise RuntimeError("请等待安全测试完成后再启动下一轮")
+        if self.status == "complete" and self.worker and self.worker.is_alive():
+            self.proc.terminate()
+            self.worker.join(timeout=5)
         with self.lock:
             if self.worker and self.worker.is_alive():
                 raise RuntimeError("网关正在运行，请先停止")
@@ -91,6 +115,10 @@ class Experiment:
                 raise ValueError("请先完成同一终端的 FULL；恢复时不能复位开发板。")
             if mode == "full":
                 self.cache_ready = False
+            self.security_pending = None
+            self.security_results = []
+            control=Path(self.session_dir.name)/"security.txt"
+            control.unlink(missing_ok=True)
             self.events.clear()
             self.metrics = {}
             self.handshake = None
@@ -106,7 +134,7 @@ class Experiment:
                 env["PATH"] = str(Path(exe).parent)+os.pathsep+env.get("PATH","")
             session_args = ["--load-session" if mode == "resume" else "--save-session",
                             str(Path(self.session_dir.name)/"gateway.bin")]
-            self.proc = subprocess.Popen([str(exe),"--events","--mode",mode,"--port",str(port),"--msgs",str(count),"--peer","169.254.33.64"]+session_args,
+            self.proc = subprocess.Popen([str(exe),"--events","--mode",mode,"--port",str(port),"--msgs",str(count),"--peer","169.254.33.64","--security-control",str(control)]+session_args,
                 cwd=str(root),env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name=="nt" else 0)
             self.worker = threading.Thread(target=self.consume,daemon=True)
@@ -126,9 +154,15 @@ class Experiment:
                         self.publish(event)
             rc = proc.wait()
             with self.lock:
-                self.ended = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+                if self.ended is None:
+                    self.ended = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+                if self.security_pending:
+                    self.security_pending = None
+                    self.error = "网关退出前未返回安全测试结果，请重新运行测试；未计为通过。"
                 if self.cancelled:
                     self.status = "stopped"
+                elif self.status == "complete":
+                    pass
                 elif rc == 0 and self.metrics.get("received")==self.config["count"] and self.metrics.get("acks")==self.config["count"]:
                     self.status = "complete"
                     self.cache_ready = True
@@ -146,6 +180,25 @@ class Experiment:
         finally:
             timer.cancel()
             proc.stdout.close()
+
+    def security_test(self, data):
+        action=data.get("test")
+        if action not in ("tamper","replay"):
+            raise ValueError("测试类型必须为 tamper 或 replay")
+        with self.lock:
+            if not self.snapshot()["security_available"]:
+                raise RuntimeError("需要正在运行的网关和至少一条真实终端记录；完成后测试窗口为 60 秒。")
+            if self.security_pending:
+                raise RuntimeError("上一项测试正在等待协议返回，请稍候")
+            self.security_request += 1
+            directory=Path(self.session_dir.name)
+            temporary=directory/"security.next"
+            try:
+                temporary.write_text("%d %s"%(self.security_request,action),encoding="ascii")
+                os.replace(temporary,directory/"security.txt")
+            except OSError as exc:
+                raise RuntimeError("测试请求写入失败，请重试；未执行或计为通过。") from exc
+            self.security_pending = dict(id=self.security_request,test=action)
 
     def stop(self):
         with self.lock:
@@ -225,6 +278,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("需要 JSON 对象")
             if self.path == "/api/start":
                 EXPERIMENT.start(data)
+            elif self.path == "/api/security-test":
+                EXPERIMENT.security_test(data)
             elif self.path == "/api/stop":
                 EXPERIMENT.stop()
             else:

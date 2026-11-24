@@ -4,8 +4,8 @@ const emptyHandshakeTimeline = $('handshakeTimeline').innerHTML;
 let cursor = 0, runId = null, allEvents = [], state = null, paused = false, filter = 'all';
 let connected = false, busy = false, toastTimer;
 let settings = {peer: '', udp_port: 4433, count: 12};
-const modes = {full:'FULL',resume:'RESUME',psk:'PSK',early:'PSK · 0-RTT'};
-const names = {ready_wait:'等待终端',start:'实验启动',ready:'网关就绪',handshake:'握手完成',wire:'UDP 数据报',telemetry:'接收遥测',ack_sent:'ACK 已发送',complete:'网关完成',finished:'实验完成',error:'运行异常',stop:'实验停止'};
+const modes = {full:'FULL',resume:'RESUME'};
+const names = {security_result:'安全测试结果',ready_wait:'等待终端',start:'实验启动',ready:'网关就绪',handshake:'握手完成',wire:'UDP 数据报',telemetry:'接收遥测',ack_sent:'ACK 已发送',complete:'网关完成',finished:'实验完成',error:'运行异常',stop:'实验停止'};
 const business = new Set(['telemetry','ack_sent']);
 const activeStates = new Set(['starting','waiting','connected','stopping']);
 function toast(text) {
@@ -44,12 +44,12 @@ function renderRecords() {
       e.type === 'wire' ? (e.direction === 'rx' ? '终端 → 网关' : '网关 → 终端') : e.type === 'telemetry' ? '终端 → 网关' : e.type === 'ack_sent' ? '网关 → 终端' : '本机网关',
       e.message_id ?? '—',
       e.bytes == null ? '—' : number(e.bytes),
-      e.text || (e.type === 'wire' ? 'UDP 数据报元信息（不显示原始载荷）' : e.type === 'handshake' ? `握手完成 · SM2 ${e.sm2_ops} 次 · ${(e.elapsed_us/1000).toFixed(2)} ms` : '—')];
+      (e.type==='security_result' ? `${e.test==='tamper'?'篡改副本':'重放原记录'} · rc=${e.code} · ${e.passed?'拒绝符合预期，接收状态未改变':'测试失败'}` : e.text) || (e.type === 'wire' ? 'UDP 数据报元信息（不显示原始载荷）' : e.type === 'handshake' ? `握手完成 · SM2 ${e.sm2_ops} 次 · ${(e.elapsed_us/1000).toFixed(2)} ms` : '—')];
     values.forEach((value,i) => {
       const td = document.createElement('td');
       if (i === 1) {
         const tag = document.createElement('span');
-        tag.className = 'event-tag' + (e.type === 'telemetry' || e.type === 'handshake' ? ' verified' : e.type === 'error' ? ' failed' : '');
+        tag.className = 'event-tag' + (e.type === 'telemetry' || e.type === 'handshake' ? ' verified' : e.type === 'error' || e.type === 'security_result' ? ' failed' : '');
         tag.textContent = value; td.appendChild(tag);
       } else td.textContent = value;
       tr.appendChild(td);
@@ -104,7 +104,7 @@ function render() {
   step('stepHandshake',!!hs,hs ? '收到握手完成事件' : '等待与终端建立会话');
   step('stepTelemetry',!!latest,latest ? '记录解保护成功' : '收到消息后执行解保护');
   step('stepAck',!!m.acks,m.acks ? '网关发送成功' : '等待网关发送 ACK');
-  $('sessionNote').textContent = state.error || ($('mode').value==='resume' ? (state.resume_available ? '恢复缓存可用；请勿复位开发板，使用恢复运行命令触发。' : '先完成 FULL；恢复依赖同一终端和网关进程的会话缓存。') : '') || (state.config.mode === 'early' ? '0-RTT 早期数据存在重放风险；发送成功不代表对端已收到。' : '只有网关实际观测到的事件会更新状态。');
+  $('sessionNote').textContent = state.error || ($('mode').value==='resume' ? (state.resume_available ? '恢复缓存可用；请勿复位开发板，使用恢复运行命令触发。' : '先完成 FULL；恢复依赖同一终端和网关进程的会话缓存。') : '') || '只有网关实际观测到的事件会更新状态。';
   renderLiveDetails();
   renderRecords();
 }
@@ -137,7 +137,13 @@ function renderLiveDetails() {
     $('handshakeTimeline').replaceChildren(frag);
   } else $('handshakeTimeline').innerHTML=emptyHandshakeTimeline;
   $('securityAccepted').textContent=m.received==null?'—':number(m.received)+' 条';
-  $('securityStatus').textContent=m.received?'已观测记录解保护成功':'尚无验证事件';
+  const security=state.security_results || [],last=security.at(-1);
+  $('securityStatus').textContent=state.security_pending?'等待协议返回':last?(last.passed?'拒绝验证通过':'测试失败'):m.received?'可执行本地注入测试':'尚无验证事件';
+  $('tamperRejected').textContent=m.tamper_rejected == null?'—':m.tamper_rejected+' 次';
+  $('replayRejected').textContent=m.replay_rejected == null?'—':m.replay_rejected+' 次';
+  $('securityReason').textContent=last?`${last.code} · ${last.code===-5?'MAC 校验失败':last.code===-6?'重复序号':'非预期返回'}`:'—';
+  $('replayButton').disabled=$('tamperButton').disabled=!connected || !state.security_available || !!state.security_pending;
+  $('securityHint').textContent=state.security_pending?'已请求测试，等待 C 记录层返回；页面不预设结果。':state.security_available?'网关本地注入真实记录副本；完成后的测试窗口为 60 秒。拒绝结果来自实际协议返回码。':'需运行网关并收到真实终端记录；测试窗口结束后需重新运行。';
   $('summaryStatus').textContent=state.run_id?(running?'进行中':state.status==='complete'?'本轮完成':'本轮结束'):'尚无实验';
   $('summaryRun').textContent=state.run_id || '—';
   $('summaryDuration').textContent=state.started?((new Date(state.ended || Date.now())-new Date(state.started))/1000).toFixed(1)+' s':'—';
@@ -156,7 +162,7 @@ function setConnection(ok) {
   $('observerState').textContent = ok ? '观测就绪' : '服务离线';
   $('nodeObserver').classList.toggle('active',ok);
   if (!ok) {
-    $('startButton').disabled = true; $('stopButton').disabled = true;
+    $('startButton').disabled = true; $('stopButton').disabled = true; $('replayButton').disabled=$('tamperButton').disabled=true;
     $('runHint').textContent = '无法连接本机服务，请确认平台服务仍在运行。';
   }
 }
@@ -211,6 +217,13 @@ $('settingsForm').addEventListener('submit',e => {
   renderConfiguration();
   $('settingsDialog').close();toast('连接设置已保存，尚未启动网关。');
 });
+for (const [id,test] of [['replayButton','replay'],['tamperButton','tamper']]) {
+  $(id).addEventListener('click',async()=>{
+    $('replayButton').disabled=$('tamperButton').disabled=true;
+    try {await post('/api/security-test',{test});toast('已提交本地测试请求，等待协议验证结果。');}
+    catch(error){toast(error.message);}
+  });
+}
 $('guideButton').addEventListener('click',() => $('guideDialog').showModal());
 document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click',() => $(button.dataset.close).close()));
 $('mode').addEventListener('change',() => { renderConfiguration(); if (!state || !activeStates.has(state.status)) $('sessionMode').textContent=modes[$('mode').value]; });

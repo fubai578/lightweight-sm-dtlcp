@@ -5,10 +5,48 @@
  */
 #include <stdlib.h>
 #include "demo_common.h"
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 static int events_enabled;
 static unsigned message_number;
 static uint64_t first_packet_us;
+static uint8_t captured_record[DTLCP_RECBUF];
+static size_t captured_length;
+static const char *security_control;
+static unsigned security_request;
+static void state_event(const char *,const char *,int);
+static void security_poll(dtlcp_ctx *ctx)
+{
+    FILE *f;
+    unsigned request;
+    char action[16];
+    uint8_t input[DTLCP_RECBUF],output[DTLCP_RECBUF],type=0;
+    size_t olen=0,consumed=0;
+    dtlcp_rec before;
+    int rc,expected,unchanged;
+    if(!security_control || !captured_length) return;
+    f=fopen(security_control,"r");
+    if(!f) return;
+    if(fscanf(f,"%u %15s",&request,action)!=2) {fclose(f);return;}
+    fclose(f);
+    if(request<=security_request) return;
+    security_request=request;
+    if(strcmp(action,"tamper") && strcmp(action,"replay")) return;
+    memcpy(input,captured_record,captured_length);
+    if(!strcmp(action,"tamper")) input[captured_length-1]^=1; /* MAC bit */
+    expected=!strcmp(action,"tamper")?DTLCP_E_VERIFY:DTLCP_E_REPLAY;
+    before=ctx->rx;
+    rc=dtlcp_rec_unprotect(&ctx->rx,input,captured_length,output,sizeof output,&olen,&type,&consumed);
+    unchanged=memcmp(&before,&ctx->rx,sizeof before)==0;
+    if(events_enabled) printf("@dtlcp {\"type\":\"security_result\",\"role\":\"gateway\",\"request_id\":%u,\"test\":\"%s\",\"code\":%d,\"expected_code\":%d,\"passed\":%s,\"state_unchanged\":%s,\"bytes\":%lu,\"text\":\"local captured-record injection; protocol return code\"}\n",request,action,rc,expected,(rc==expected&&unchanged)?"true":"false",unchanged?"true":"false",(unsigned long)captured_length);
+    if(rc!=expected || !unchanged) {
+        state_event("error","security test failed; stopping gateway",rc);
+        exit(2);
+    }
+}
+
 static void event(const char *type, const uint8_t *data, size_t len, int code)
 {
     size_t j;
@@ -33,6 +71,9 @@ static int observed_send(void *user,const uint8_t *buf,size_t len)
 static int observed_recv(void *user,uint8_t *buf,size_t cap)
 {
     int n=udp_recv_cb(user,buf,cap);
+    if(n>DTLCP_HDR_LEN+DTLCP_MAC_LEN && buf[0]==DTLCP_RT_APPDATA && (size_t)n<=sizeof captured_record) {
+        memcpy(captured_record,buf,(size_t)n); captured_length=(size_t)n;
+    }
     if(n>0 && !first_packet_us) first_packet_us=udp_now_us();
     if(events_enabled && n>0) printf("@dtlcp {\"type\":\"wire\",\"role\":\"gateway\",\"direction\":\"rx\",\"bytes\":%d}\n",n);
     return n;
@@ -73,6 +114,7 @@ int main(int argc, char **argv)
     (void)t1;
 
     for (i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--security-control") && i+1<argc) {security_control=argv[++i];continue;}
         if (!strcmp(argv[i], "--events")) { events_enabled = 1; continue; }
         if (!strcmp(argv[i], "--mode") && i + 1 < argc) mode_str = argv[++i];
         else if (!strcmp(argv[i], "--port") && i + 1 < argc) port = atoi(argv[++i]);
@@ -163,10 +205,24 @@ int main(int argc, char **argv)
             return 1;
         }
         event("ack_sent",ack,(size_t)alen,0);
+        security_poll(&ctx);
     }
     state_event("complete","gateway completed",0);
     dtlcp_get_stats(&ctx, &st);
     printf("[gateway] 完成 %d 条遥测回执 | 应用收=%lluB 发=%lluB\n", msgs, st.app_recv, (unsigned long long)st.app_sent);
+    /* Keep only the actual session receive state for explicit local negative
+     * tests. No replayed record reaches the application or emits an ACK. */
+    if(security_control) {
+        uint64_t deadline=udp_now_us()+60000000ull;
+        while(udp_now_us()<deadline) {
+            security_poll(&ctx);
+#ifdef _WIN32
+            Sleep(50);
+#else
+            usleep(50000);
+#endif
+        }
+    }
     udp_io_close(&udp);
     return 0;
 }
