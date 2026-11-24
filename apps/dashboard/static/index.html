@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DTLCP · 国密传输实验台</title>
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="rail" aria-label="实验台导航">
+    <a class="brand-symbol" href="/" aria-label="国密传输实验台"><svg viewBox="0 0 32 32"><path d="M16 3 28 10v12L16 29 4 22V10Z"/><path d="m10 13 6-4 6 4v7l-6 4-6-4Z"/><path d="m10 13 6 4 6-4M16 17v7"/></svg></a>
+    <span class="rail-rule"></span>
+    <button class="rail-button selected" title="实时观测" aria-label="实时观测"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4M6 11h3l2-4 3 7 2-3h2"/></svg></button>
+    <button class="rail-button" id="guideButton" title="录制指南" aria-label="录制指南"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></button>
+    <span class="rail-bottom">SM<br>STACK</span>
+  </aside>
+  <div class="shell">
+    <header class="topbar">
+      <div class="breadcrumb">SM STACK <span>/</span> 实时观测</div>
+      <div class="topbar-right"><span id="serviceStatus" class="service-status"><i></i>平台连接中</span><span class="topbar-divider"></span><time id="clock">—</time><button id="fullscreenButton" class="icon-button" title="全屏展示" aria-label="全屏展示"><svg viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button></div>
+    </header>
+    <main>
+      <section class="page-heading">
+        <div><p class="eyebrow">LIGHTWEIGHT CRYPTO · A1-33</p><h1>国密传输实验台<span class="title-tag">DTLCP</span></h1><p class="subtitle">从终端到网关，让每一次安全传输清晰可见。</p></div>
+        <div class="heading-actions"><button id="exportButton" class="button secondary" disabled><svg viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/></svg>导出记录</button><button id="presentButton" class="button secondary"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="m10 8 5 3-5 3ZM12 17v4m-4 0h8"/></svg>专注展示</button></div>
+      </section>
+      <section class="connection-strip" aria-label="连接控制">
+        <div class="connection-label"><span class="status-dot" id="runDot"></span><div><strong id="runStatus">尚未接入设备</strong><small id="runHint">数据就绪后将在此实时显示</small></div></div>
+        <div class="connection-controls"><label>握手模式<select id="mode"><option value="full">FULL · 完整握手</option><option value="resume">RESUME · 会话恢复</option><option value="psk">PSK · 预共享密钥</option><option value="early">PSK · 0-RTT</option></select></label><button id="settingsButton" class="button text-button"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg>连接设置</button><button id="startButton" class="button primary"><span class="play-symbol">▶</span>启动网关</button><button id="stopButton" class="button secondary" hidden>停止接收</button></div>
+      </section>
+      <section class="pipeline panel" aria-label="实时通信链路">
+        <div class="section-title"><h2>安全通信链路</h2><span class="subtle-label">开发板终端 → 本机网关 → 实时观测</span><span id="sourceBadge" class="source-badge">等待接入</span></div>
+        <div class="pipeline-track">
+          <div class="pipeline-node" id="nodeTerminal"><div class="node-icon"><svg viewBox="0 0 32 32"><rect x="8" y="8" width="16" height="16" rx="3"/><path d="M12 2v6m8-6v6m-8 16v6m8-6v6M2 12h6m-6 8h6m16-8h6m-6 8h6"/><rect x="12" y="12" width="8" height="8" rx="1"/></svg></div><div><h3>物联网终端</h3><p>STM32 · 低功耗节点</p><span class="node-state" id="terminalState">未连接</span></div></div>
+          <div class="pipeline-link"><span class="link-label">UDP / DTLCP</span><div class="link-line"><i></i><b>→</b></div><span class="link-caption">SM2 · SM3 · SM4</span></div>
+          <div class="pipeline-node" id="nodeGateway"><div class="node-icon"><svg viewBox="0 0 32 32"><rect x="5" y="5" width="22" height="9" rx="2"/><rect x="5" y="18" width="22" height="9" rx="2"/><path d="M9 10h1m4 0h9M9 23h1m4 0h9"/></svg></div><div><h3>国密安全网关</h3><p>记录解保护 · 完整性验证</p><span class="node-state" id="gatewayState">未启动</span></div></div>
+          <div class="pipeline-link"><span class="link-label">本机事件接口</span><div class="link-line"><i></i><b>→</b></div><span class="link-caption">仅公开业务与实验状态</span></div>
+          <div class="pipeline-node" id="nodeObserver"><div class="node-icon"><svg viewBox="0 0 32 32"><rect x="3" y="5" width="26" height="19" rx="2"/><path d="M11 29h10m-5-5v5M8 16h4l3-5 3 9 3-5h3"/></svg></div><div><h3>实时观测平台</h3><p>遥测内容 · 收发记录</p><span class="node-state" id="observerState">平台连接中</span></div></div>
+        </div>
+      </section>
+      <section class="metric-grid" aria-label="本轮统计">
+        <article class="metric"><div class="metric-label">握手耗时<span>HANDSHAKE</span></div><div class="metric-value"><strong id="handshakeValue">—</strong><small>ms</small></div><p id="handshakeDetail">等待一次完整握手</p></article>
+        <article class="metric"><div class="metric-label">已接收遥测<span>TELEMETRY</span></div><div class="metric-value"><strong id="receivedValue">—</strong><small>条</small></div><p id="receivedDetail">网关解保护后的业务消息</p></article>
+        <article class="metric"><div class="metric-label">ACK 已发送<span>ACKNOWLEDGEMENT</span></div><div class="metric-value"><strong id="ackValue">—</strong><small>条</small></div><p>网关成功发送的应用回执</p></article>
+        <article class="metric"><div class="metric-label">线上收发字节<span>WIRE BYTES</span></div><div class="metric-value"><strong id="wireValue">—</strong><small>B</small></div><p id="wireDetail">含握手与记录层开销</p></article>
+      </section>
+      <div class="workspace-grid">
+        <section class="panel telemetry-panel">
+          <div class="section-title"><h2>终端遥测</h2><span class="subtle-label">解保护后的业务内容</span><span id="payloadTime" class="panel-meta">尚无消息</span></div>
+          <div id="telemetryEmpty" class="telemetry-empty"><div class="empty-signal"><svg viewBox="0 0 48 48"><path d="M9 18a22 22 0 0 1 30 0M15 25a13 13 0 0 1 18 0m-12 7a4 4 0 0 1 6 0"/><circle cx="24" cy="39" r="2"/></svg></div><h3>等待第一条终端遥测</h3><p>接入终端并完成握手后，真实业务内容将在这里显示。</p><span class="empty-tag">当前未接入数据源</span></div>
+          <div id="telemetryLive" class="telemetry-live" hidden><div class="payload-heading"><span>最新接收内容</span><span class="verification">✓ 记录解保护成功</span></div><pre id="payload"></pre><div class="payload-properties"><span>业务长度<strong id="payloadBytes">—</strong></span><span>接收时间<strong id="payloadTimestamp">—</strong></span><span>回执状态<strong id="payloadAck">—</strong></span></div></div>
+        </section>
+        <section class="panel session-panel">
+          <div class="section-title"><h2>会话状态</h2><span class="panel-meta" id="sessionMode">FULL</span></div>
+          <ol class="session-steps"><li id="stepReady"><span class="step-dot"></span><div><strong>网关就绪</strong><p id="stepReadyText">等待启动本机网关</p></div><span class="step-check"></span></li><li id="stepHandshake"><span class="step-dot"></span><div><strong>安全握手</strong><p id="stepHandshakeText">等待与终端建立会话</p></div><span class="step-check"></span></li><li id="stepTelemetry"><span class="step-dot"></span><div><strong>记录验证</strong><p id="stepTelemetryText">收到消息后执行解保护</p></div><span class="step-check"></span></li><li id="stepAck"><span class="step-dot"></span><div><strong>应用回执</strong><p id="stepAckText">等待网关发送 ACK</p></div><span class="step-check"></span></li></ol>
+          <div class="session-note"><svg viewBox="0 0 24 24"><path d="m12 3 8 4v5c0 4-4 7-8 9-4-2-8-5-8-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><p id="sessionNote">只有网关实际观测到的事件会更新状态。</p></div>
+        </section>
+      </div>
+      <section class="panel records-panel">
+        <div class="section-title records-title"><h2>通信事件记录</h2><span id="recordCount" class="count-badge">0</span><div class="record-tools"><div class="filter-tabs" aria-label="记录筛选"><button class="active" data-filter="all">全部</button><button data-filter="business">业务收发</button><button data-filter="session">会话事件</button></div><label class="search-box"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="search" placeholder="搜索内容或事件" aria-label="搜索记录"></label><button id="pauseButton" class="icon-button" title="暂停画面更新" aria-label="暂停画面更新"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button></div></div>
+        <div class="table-scroll"><table><thead><tr><th>时间</th><th>事件</th><th>方向 / 来源</th><th>字节</th><th>内容与结果</th></tr></thead><tbody id="records"></tbody></table><div id="recordsEmpty" class="records-empty"><svg viewBox="0 0 32 32"><path d="M7 5h18v22H7Z M11 11h10m-10 5h10m-10 5h6"/></svg><strong>暂无通信记录</strong><span>接入数据后，握手、遥测与 ACK 事件将按时间排列。</span></div></div>
+        <div class="records-footer"><span id="recordFooter">等待真实网关事件</span><span>时间为本机事件接收时间 · 最多保留 2,000 条</span></div>
+      </section>
+      <footer class="page-footer"><span><i></i>本地观测 · 业务数据由 C 网关提供</span><span>资源受限物联网终端轻量级国密算法优化与 DTLCP 国密改造实现</span></footer>
+    </main>
+  </div>
+  <dialog id="settingsDialog"><form id="settingsForm"><div class="dialog-heading"><div><p class="eyebrow">GATEWAY CONFIGURATION</p><h2>连接设置</h2></div><button type="button" class="icon-button" data-close="settingsDialog" aria-label="关闭">✕</button></div><p class="dialog-intro">开发板作为终端，电脑作为网关。保存设置不会连接设备。</p><label class="field">开发板 IPv4 地址 <small>可选；填写后网关发送网络探测包，以建立防火墙返回路径</small><input id="peer" placeholder="留空时等待终端主动连接" autocomplete="off"></label><div class="field-row"><label class="field">UDP 端口<input id="udpPort" type="number" min="1024" max="65535" value="4433" required></label><label class="field">本轮接收条数<input id="messageCount" type="number" min="1" max="100" value="12" required></label></div><p class="field-help">完整握手后才可在同一连接配置下恢复会话。0-RTT 模式另接收一条早期数据。终端模式与条数须保持一致。</p><div class="dialog-actions"><button type="button" class="button secondary" data-close="settingsDialog">取消</button><button class="button primary" type="submit">保存设置</button></div></form></dialog>
+  <dialog id="guideDialog"><div class="dialog-heading"><div><p class="eyebrow">RECORDING GUIDE</p><h2>演示录制指南</h2></div><button class="icon-button" data-close="guideDialog" aria-label="关闭">✕</button></div><p class="dialog-intro">当前页面保持空态，不包含演示数据。后续接入真实终端时可按以下顺序录制。</p><ol class="guide-list"><li><strong>准备链路</strong><p>连接开发板与网络，确认终端固件、握手模式和网关配置一致。</p></li><li><strong>启动网关</strong><p>点击启动后再启动终端，展示从网关就绪到安全握手的过程。</p></li><li><strong>展示业务</strong><p>观察真实遥测、记录解保护结果和网关 ACK；网关发送成功不代表终端已收到回执。</p></li><li><strong>整理画面</strong><p>使用“专注展示”与全屏；需要讲解时暂停画面更新，后台仍持续接收。</p></li><li><strong>保存本轮记录</strong><p>导出公开事件 JSON。导出内容包含业务明文，不包含密钥和会话缓存。</p></li></ol></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
