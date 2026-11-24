@@ -1,0 +1,575 @@
+{
+  "run_id": "62eae3e52e79",
+  "cursor": 286,
+  "status": "complete",
+  "config": {
+    "mode": "full",
+    "count": 12,
+    "udp_port": 4433,
+    "peer": "169.254.33.64"
+  },
+  "metrics": {
+    "wire_rx": 1480,
+    "wire_tx": 1398,
+    "received": 12,
+    "app_bytes": 336,
+    "acks": 12,
+    "app_sent": 264
+  },
+  "handshake": {
+    "type": "handshake",
+    "role": "gateway",
+    "elapsed_us": 9675728,
+    "active_elapsed_us": 4699235,
+    "sm2_ops": 5,
+    "flights": 5,
+    "wire_sent": 594,
+    "wire_recv": 604,
+    "peer": "169.254.33.64",
+    "id": 237,
+    "timestamp": "2026-11-24T11:35:19.382+00:00"
+  },
+  "error": "",
+  "resume_available": true,
+  "events": [
+    {
+      "type": "ready",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 0,
+      "bytes": 17,
+      "text": "gateway listening",
+      "id": 230,
+      "timestamp": "2026-11-24T11:35:09.707+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 168,
+      "id": 231,
+      "timestamp": "2026-11-24T11:35:14.683+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 594,
+      "id": 232,
+      "timestamp": "2026-11-24T11:35:14.684+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 211,
+      "id": 233,
+      "timestamp": "2026-11-24T11:35:18.773+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 114,
+      "id": 234,
+      "timestamp": "2026-11-24T11:35:19.369+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 46,
+      "id": 235,
+      "timestamp": "2026-11-24T11:35:19.372+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 65,
+      "id": 236,
+      "timestamp": "2026-11-24T11:35:19.382+00:00"
+    },
+    {
+      "type": "handshake",
+      "role": "gateway",
+      "elapsed_us": 9675728,
+      "active_elapsed_us": 4699235,
+      "sm2_ops": 5,
+      "flights": 5,
+      "wire_sent": 594,
+      "wire_recv": 604,
+      "peer": "169.254.33.64",
+      "id": 237,
+      "timestamp": "2026-11-24T11:35:19.382+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 238,
+      "timestamp": "2026-11-24T11:35:19.387+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 1,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 239,
+      "timestamp": "2026-11-24T11:35:19.387+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 240,
+      "timestamp": "2026-11-24T11:35:19.388+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 1,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 241,
+      "timestamp": "2026-11-24T11:35:19.388+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 242,
+      "timestamp": "2026-11-24T11:35:20.492+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 2,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 243,
+      "timestamp": "2026-11-24T11:35:20.493+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 244,
+      "timestamp": "2026-11-24T11:35:20.493+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 2,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 245,
+      "timestamp": "2026-11-24T11:35:20.493+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 246,
+      "timestamp": "2026-11-24T11:35:21.598+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 3,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 247,
+      "timestamp": "2026-11-24T11:35:21.598+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 248,
+      "timestamp": "2026-11-24T11:35:21.599+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 3,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 249,
+      "timestamp": "2026-11-24T11:35:21.599+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 250,
+      "timestamp": "2026-11-24T11:35:22.704+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 4,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 251,
+      "timestamp": "2026-11-24T11:35:22.704+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 252,
+      "timestamp": "2026-11-24T11:35:22.705+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 4,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 253,
+      "timestamp": "2026-11-24T11:35:22.705+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 254,
+      "timestamp": "2026-11-24T11:35:23.809+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 5,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 255,
+      "timestamp": "2026-11-24T11:35:23.809+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 256,
+      "timestamp": "2026-11-24T11:35:23.809+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 5,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 257,
+      "timestamp": "2026-11-24T11:35:23.809+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 258,
+      "timestamp": "2026-11-24T11:35:24.914+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 6,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 259,
+      "timestamp": "2026-11-24T11:35:24.914+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 260,
+      "timestamp": "2026-11-24T11:35:24.914+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 6,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 261,
+      "timestamp": "2026-11-24T11:35:24.915+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 262,
+      "timestamp": "2026-11-24T11:35:26.019+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 7,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 263,
+      "timestamp": "2026-11-24T11:35:26.019+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 264,
+      "timestamp": "2026-11-24T11:35:26.020+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 7,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 265,
+      "timestamp": "2026-11-24T11:35:26.020+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 266,
+      "timestamp": "2026-11-24T11:35:27.125+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 8,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 267,
+      "timestamp": "2026-11-24T11:35:27.125+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 268,
+      "timestamp": "2026-11-24T11:35:27.126+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 8,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 269,
+      "timestamp": "2026-11-24T11:35:27.126+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 270,
+      "timestamp": "2026-11-24T11:35:28.230+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 9,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 271,
+      "timestamp": "2026-11-24T11:35:28.231+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 272,
+      "timestamp": "2026-11-24T11:35:28.231+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 9,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 273,
+      "timestamp": "2026-11-24T11:35:28.231+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 274,
+      "timestamp": "2026-11-24T11:35:29.336+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 10,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 275,
+      "timestamp": "2026-11-24T11:35:29.336+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 276,
+      "timestamp": "2026-11-24T11:35:29.337+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 10,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 277,
+      "timestamp": "2026-11-24T11:35:29.337+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 278,
+      "timestamp": "2026-11-24T11:35:30.441+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 11,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 279,
+      "timestamp": "2026-11-24T11:35:30.442+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 280,
+      "timestamp": "2026-11-24T11:35:30.442+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 11,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 281,
+      "timestamp": "2026-11-24T11:35:30.442+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "rx",
+      "bytes": 73,
+      "id": 282,
+      "timestamp": "2026-11-24T11:35:31.546+00:00"
+    },
+    {
+      "type": "telemetry",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 12,
+      "bytes": 28,
+      "text": "TELEMETRY:F103:status=online",
+      "id": 283,
+      "timestamp": "2026-11-24T11:35:31.547+00:00"
+    },
+    {
+      "type": "wire",
+      "role": "gateway",
+      "direction": "tx",
+      "bytes": 67,
+      "id": 284,
+      "timestamp": "2026-11-24T11:35:31.547+00:00"
+    },
+    {
+      "type": "ack_sent",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 12,
+      "bytes": 22,
+      "text": "ACK:F103:status=online",
+      "id": 285,
+      "timestamp": "2026-11-24T11:35:31.547+00:00"
+    },
+    {
+      "type": "complete",
+      "role": "gateway",
+      "code": 0,
+      "message_id": 12,
+      "bytes": 17,
+      "text": "gateway completed",
+      "id": 286,
+      "timestamp": "2026-11-24T11:35:31.548+00:00"
+    }
+  ],
+  "started": "2026-11-24T11:35:09.676+00:00",
+  "ended": "2026-11-24T11:35:31.550+00:00",
+  "source": "board",
+  "payload_origin": "firmware_status_report",
+  "board_startup_ms": [
+    1398030641,
+    0,
+    4,
+    4447,
+    4449,
+    9612,
+    9622
+  ],
+  "board_swd_result": [
+    1146375217,
+    3,
+    0,
+    0,
+    604,
+    594,
+    5,
+    22,
+    1,
+    8
+  ],
+  "board_ack_confirmed": true
+}

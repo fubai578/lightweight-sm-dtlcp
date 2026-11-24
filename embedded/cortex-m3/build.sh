@@ -95,6 +95,7 @@ if [ "$MODE" = "w5500_dtlcp" ] || [ "$MODE" = "w5500_dtlcp_server" ] || \
       -fdata-sections -ffreestanding -fstack-usage -DSTM32F103xB -DDTLCP_RECBUF=1024 \
       -DSMC_SM3_KERNEL=4 -DSMC_SM4_KERNEL=2 -DSMC_SM2_KERNEL=2 -DSMC_SM2_ENC=0 \
       -I. -I../port -I../../crypto/include -I../../crypto/src -I../../dtlcp/include -I../../dtlcp/src"
+    F="$F ${BOARD_IDENTITY_FLAGS:-}"
     ENTRY=w5500_dtlcp_client.c
     OUTNAME=smc_m3_w5500_dtlcp
     if [ "$MODE" = "w5500_dtlcp_server" ]; then

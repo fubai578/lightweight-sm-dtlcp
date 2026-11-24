@@ -78,6 +78,19 @@ def main():
                 if board[1]==3 or time.monotonic()>board_deadline:
                     break
                 time.sleep(.5)
+            try:
+                startup_address = find_symbol(elf,"w5500_startup_results")
+            except RuntimeError:
+                startup_address = None
+            if startup_address is not None:
+                target.halt()
+                startup = target.read_memory_block32(startup_address,7)
+                result["board_startup_ms"] = startup
+                result["board_startup_timing_valid"] = (
+                    startup[0] == 0x53544131 and startup[1] in (0,1)
+                    and 0 < startup[2] <= startup[3] <= startup[4] <= startup[5] <= startup[6] < 65535
+                )
+                target.resume()
             result["board_swd_result"] = board
             result["board_ack_confirmed"] = board[0]==0x44544c31 and board[1]==3 and board[8]==1
             args.output.parent.mkdir(parents=True,exist_ok=True)

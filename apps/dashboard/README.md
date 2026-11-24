@@ -67,3 +67,17 @@ Python 只消费结构化事件，不解析私钥、PSK 或会话缓存，不代
 python -m unittest discover -s apps/dashboard -p "test_*.py"
 node --check apps/dashboard/static/app.js
 ```
+
+## 预置身份与启动时间
+
+F103 客户端默认使用 `embedded/cortex-m3/demo_node_identity.h` 中预生成的公开测试身份。
+终端不再每次启动都生成 CA/网关/终端密钥并签发三份证书；只将终端证书、私钥和 CA 证书装入连接配置。
+FULL 的对端验证、临时 ECDH 与握手完整性检查仍执行。固定测试私钥已公开，不能作为生产密钥。
+该身份沿用原 demo seed，仍不具有每设备独立性。生产须安全配置每设备身份，CA 签发工作留在设备外。
+
+生成一致性检查：`python scripts/gen_demo_identity.py --cc "<host GCC>" --check`。
+`BOARD_IDENTITY_FLAGS=-DBOARD_DYNAMIC_IDENTITY=1` 可构建旧启动路径用于 A/B。
+启动计时由 TIM2 以 1 kHz 记录，起点在 `smc_port_init` 之后，不代表完整上电延迟；
+结果由运行脚本写入 `board_startup_ms`，不混入网页的网关握手时间。
+字段依次为 magic、身份模式（0=动态 / 1=预置）、身份准备开始、结束、握手前、握手后、首 ACK 后。
+计数器 16 bit，65.536 秒回绕；脚本附计时有效标志，无效或溢出数据不可用于性能比较。

@@ -1,0 +1,66 @@
+{
+  "rounds_per_variant": 3,
+  "clock": "TIM2 1 kHz; HSI 8 MHz; after platform init",
+  "metrics": {
+    "before": {
+      "identity_ms": {
+        "median": 4443,
+        "maximum": 4443,
+        "minimum": 4443
+      },
+      "ready_ms": {
+        "median": 4449,
+        "maximum": 4449,
+        "minimum": 4449
+      },
+      "handshake_ms": {
+        "median": 5194,
+        "maximum": 5194,
+        "minimum": 5163
+      },
+      "first_ack_ms": {
+        "median": 9652,
+        "maximum": 9654,
+        "minimum": 9622
+      }
+    },
+    "after": {
+      "identity_ms": {
+        "median": 0,
+        "maximum": 0,
+        "minimum": 0
+      },
+      "ready_ms": {
+        "median": 6,
+        "maximum": 6,
+        "minimum": 6
+      },
+      "handshake_ms": {
+        "median": 5166,
+        "maximum": 5183,
+        "minimum": 5154
+      },
+      "first_ack_ms": {
+        "median": 5182,
+        "maximum": 5200,
+        "minimum": 5170
+      }
+    }
+  },
+  "sizes": {
+    "before": {
+      "text": 29268,
+      "data": 8,
+      "bss": 10464
+    },
+    "after": {
+      "text": 29132,
+      "data": 8,
+      "bss": 9520
+    }
+  },
+  "firmware_sha256": {
+    "before": "a6fe6c1a497b487ae99edc282b27748c07f535c834cc9a661db51c20c3bcb28f",
+    "after": "f73450aaae2e5ecc9d970c300b41d5b69571407f430d5b0575f216f4e8db8fd0"
+  }
+}

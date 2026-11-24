@@ -14,6 +14,7 @@
 #endif
 #define DTLCP_DEMO_PKI_FIXED_SEED 1
 
+#if defined(BOARD_DYNAMIC_IDENTITY)
 typedef struct {
     uint8_t ca_priv[32], ca_pub[65];
     uint8_t gw_priv[32], gw_pub[65];
@@ -21,8 +22,11 @@ typedef struct {
     dtlcp_cert ca_cert, gw_cert, sn_cert;
 } board_pki;
 
-static dtlcp_ctx g_ctx;
 static board_pki g_pki;
+#else
+#include "demo_node_identity.h"
+#endif
+static dtlcp_ctx g_ctx;
 volatile uint32_t w5500_dtlcp_results[10];
 /* SWD demo mailbox: 1 requests RESUME without reset; reset clears the cache. */
 volatile uint32_t w5500_dtlcp_command;
@@ -34,6 +38,7 @@ static void puts_uart(const char *s)
     smc_port_putc('\n');
 }
 
+#if defined(BOARD_DYNAMIC_IDENTITY)
 static void pki_setup(board_pki *p)
 {
     sm2_keygen(p->ca_priv, p->ca_pub, NULL);
@@ -45,6 +50,23 @@ static void pki_setup(board_pki *p)
     sm2_keygen(p->sn_priv, p->sn_pub, NULL);
     dtlcp_cert_issue(&p->sn_cert, "sensor-node-01", 3, p->sn_pub,
                      "DTLCP-ROOT-CA", p->ca_priv);
+}
+
+#endif
+
+/* TIM2 at 1 kHz, measured from after smc_port_init; reset is not power-on. */
+#define START_REG(a) (*(volatile uint32_t *)(a))
+volatile uint32_t w5500_startup_results[7];
+static uint32_t startup_ms(void) { return START_REG(0x40000024u) & 0xffffu; }
+static void startup_timer(void)
+{
+    START_REG(0x4002101cu) |= 1u;
+    START_REG(0x40000000u) = 0;
+    START_REG(0x40000028u) = 7999;
+    START_REG(0x4000002cu) = 65535;
+    START_REG(0x40000014u) = 1;
+    START_REG(0x40000024u) = 0;
+    START_REG(0x40000000u) = 1;
 }
 
 static int board_entropy(void *user, uint8_t *buf, size_t len)
@@ -68,6 +90,13 @@ int main(void)
     int rc, n, index;
 
     smc_port_init();
+    startup_timer();
+    w5500_startup_results[0] = 0x53544131u;
+#if defined(BOARD_DYNAMIC_IDENTITY)
+    w5500_startup_results[1] = 0;
+#else
+    w5500_startup_results[1] = 1;
+#endif
     memset((void *)w5500_dtlcp_results, 0, sizeof w5500_dtlcp_results);
     w5500_dtlcp_results[0] = 0x44544c31u; /* DTL1 */
     w5500_dtlcp_results[1] = 1;
@@ -82,16 +111,26 @@ int main(void)
     }
     puts_uart("DTLCP_NET_OK");
 
+    w5500_startup_results[2] = startup_ms();
+#if defined(BOARD_DYNAMIC_IDENTITY)
     pki_setup(&g_pki);
+#endif
+    w5500_startup_results[3] = startup_ms();
     puts_uart("DTLCP_PKI_OK");
     memset(&cfg, 0, sizeof cfg);
     cfg.role = DTLCP_ROLE_CLIENT;
     cfg.mode = DTLCP_MODE_FULL;
     cfg.suite = DTLCP_SUITE_L_SM2_SM4_CTR_SM3;
     cfg.identity = "sensor-node-01";
+#if defined(BOARD_DYNAMIC_IDENTITY)
     cfg.cert = g_pki.sn_cert;
     memcpy(cfg.privkey, g_pki.sn_priv, 32);
     cfg.ca_cert = g_pki.ca_cert;
+#else
+    cfg.cert = demo_node_cert;
+    memcpy(cfg.privkey, demo_node_private, 32);
+    cfg.ca_cert = demo_node_ca;
+#endif
     cfg.verify_peer = 1;
     cfg.entropy = board_entropy;
     io.send = w5500_udp_send_cb;
@@ -101,6 +140,7 @@ int main(void)
 connect_session:
     w5500_dtlcp_results[8] = 0;
     w5500_dtlcp_results[1] = 2;
+    if (cfg.mode == DTLCP_MODE_FULL) w5500_startup_results[4] = startup_ms();
     rc = dtlcp_connect(&g_ctx, &cfg, &io, smc_port_cycles());
     w5500_dtlcp_results[3] = (uint32_t)rc;
     dtlcp_get_stats(&g_ctx, &stats);
@@ -113,6 +153,7 @@ connect_session:
         puts_uart("DTLCP_HANDSHAKE_FAIL");
         for (;;) { }
     }
+    if (cfg.mode == DTLCP_MODE_FULL) w5500_startup_results[5] = startup_ms();
     saved_session = *dtlcp_get_session(&g_ctx);
     puts_uart("DTLCP_HANDSHAKE_OK");
 
@@ -130,6 +171,7 @@ connect_session:
         puts_uart("DTLCP_APP_FAIL");
         for (;;) { }
     }
+    if (index == 0 && cfg.mode == DTLCP_MODE_FULL) w5500_startup_results[6] = startup_ms();
     /* Presentation pacing only; independent of debugger-controlled DWT. */
     { volatile uint32_t pause; for (pause=0; pause<800000u; pause++) { } }
     }
