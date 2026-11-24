@@ -1,0 +1,23 @@
+{
+  "firmware_elf_sha256": "bd722eca896d8f49ae6d75c25bacc257420d15332ae3d2372809ffe2f6073818",
+  "firmware_source": "embedded/cortex-m3/w5500_dtlcp_client.c",
+  "gateway_source": "apps/demo/dtlcp_gateway.c",
+  "mode": "FULL",
+  "payload": "TELEMETRY:F103:status=online",
+  "hardware": "STM32F103C8T6 + W5500",
+  "board_address": "169.254.33.64:4433",
+  "host_address": "169.254.33.63:4433",
+  "board_swd_result": [
+    1146375217,
+    3,
+    0,
+    0,
+    604,
+    594,
+    5,
+    22,
+    1,
+    8
+  ],
+  "board_ack_confirmed": true
+}

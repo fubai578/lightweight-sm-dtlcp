@@ -1,10 +1,11 @@
 'use strict';
 const $ = id => document.getElementById(id);
+const emptyHandshakeTimeline = $('handshakeTimeline').innerHTML;
 let cursor = 0, runId = null, allEvents = [], state = null, paused = false, filter = 'all';
 let connected = false, busy = false, toastTimer;
 let settings = {peer: '', udp_port: 4433, count: 12};
 const modes = {full:'FULL',resume:'RESUME',psk:'PSK',early:'PSK · 0-RTT'};
-const names = {start:'实验启动',ready:'网关就绪',handshake:'握手完成',wire:'UDP 数据报',telemetry:'接收遥测',ack_sent:'ACK 已发送',complete:'网关完成',finished:'实验完成',error:'运行异常',stop:'实验停止'};
+const names = {ready_wait:'等待终端',start:'实验启动',ready:'网关就绪',handshake:'握手完成',wire:'UDP 数据报',telemetry:'接收遥测',ack_sent:'ACK 已发送',complete:'网关完成',finished:'实验完成',error:'运行异常',stop:'实验停止'};
 const business = new Set(['telemetry','ack_sent']);
 const activeStates = new Set(['starting','waiting','connected','stopping']);
 function toast(text) {
@@ -104,7 +105,48 @@ function render() {
   step('stepTelemetry',!!latest,latest ? '记录解保护成功' : '收到消息后执行解保护');
   step('stepAck',!!m.acks,m.acks ? '网关发送成功' : '等待网关发送 ACK');
   $('sessionNote').textContent = state.error || (state.config.mode === 'early' ? '0-RTT 早期数据存在重放风险；发送成功不代表对端已收到。' : '只有网关实际观测到的事件会更新状态。');
+  renderLiveDetails();
   renderRecords();
+}
+function renderLiveDetails() {
+  const hs=state.handshake,m=state.metrics,running=activeStates.has(state.status);
+  $('integrationStatus').textContent=state.run_id ? '真实开发板 · 网关事件' : '等待真实终端接入';
+  $('detailGateway').textContent=state.status==='idle'?'未启动':running?'运行中':state.status==='complete'?'本轮完成':'已结束 / 异常';
+  $('detailPeer').textContent=hs?.peer || '—';
+  $('detailSuite').textContent=hs?'FULL / L_SM2_SM4_CTR_SM3':'—';
+  $('detailSessionTime').textContent=hs?timeLabel(hs.timestamp)+(state.ended?' / '+timeLabel(state.ended):' / —'):'—';
+  const wires=allEvents.filter(e=>e.type==='wire');
+  $('detailLastSeen').textContent=wires.length?timeLabel(wires.at(-1).timestamp):'—';
+  if(state.run_id) {
+    $('configuredPeer').textContent=state.config.peer;
+    $('configuredPort').textContent=state.config.udp_port+(running?' · 网关运行中':' · 本轮已结束');
+    $('configuredMode').textContent=modes[state.config.mode];
+  }
+  $('handshakeStatus').textContent=hs?'握手成功':state.error?'未完成':'等待握手';
+  $('handshakeResult').textContent=hs?'成功':state.error?'未完成':'尚未完成';
+  $('handshakeSm2').textContent=hs?hs.sm2_ops+' 次':'—';
+  const hsPackets=hs?allEvents.filter(e=>e.type==='wire'&&e.id<hs.id).length:null;
+  $('handshakePackets').textContent=hs?hs.flights+' / '+hsPackets:'— / —';
+  $('handshakeBytes').textContent=hs?number(hs.wire_sent+hs.wire_recv)+' B':'—';
+  const timeline=allEvents.filter(e=>['ready','handshake','error'].includes(e.type));
+  if(timeline.length) {
+    const frag=document.createDocumentFragment();
+    timeline.forEach(e=>{const li=document.createElement('li'),i=document.createElement('i'),div=document.createElement('div'),strong=document.createElement('strong'),p=document.createElement('p'),t=document.createElement('time');
+      strong.textContent=names[e.type];p.textContent=e.type==='ready'?'网关已开始等待开发板握手':e.type==='handshake'?'协议握手完成；未采集内部各消息阶段耗时':e.text;
+      t.textContent=timeLabel(e.timestamp);div.append(strong,p);li.append(i,div,t);frag.append(li);});
+    $('handshakeTimeline').replaceChildren(frag);
+  } else $('handshakeTimeline').innerHTML=emptyHandshakeTimeline;
+  $('securityAccepted').textContent=m.received==null?'—':number(m.received)+' 条';
+  $('securityStatus').textContent=m.received?'已观测记录解保护成功':'尚无验证事件';
+  $('summaryStatus').textContent=state.run_id?(running?'进行中':state.status==='complete'?'本轮完成':'本轮结束'):'尚无实验';
+  $('summaryRun').textContent=state.run_id || '—';
+  $('summaryDuration').textContent=state.started?((new Date(state.ended || Date.now())-new Date(state.started))/1000).toFixed(1)+' s':'—';
+  $('summaryAppBytes').textContent=m.app_bytes==null?'— / — B':number(m.app_bytes)+' / '+number(m.app_sent || 0)+' B';
+  $('summaryBusiness').textContent=m.received?`接收 ${m.received} 条 / ACK 已发送 ${m.acks || 0} 条`:'等待遥测与 ACK 事件';
+  $('evidenceGateway').textContent=state.run_id?'F103 → 本机 C 网关':'未接入';
+  $('evidenceHardware').textContent=state.run_id?'STM32F103C8T6 + W5500':'—';
+  $('evidenceInput').textContent=state.run_id?'固件在线状态上报 / 无性能对照':'—';
+  $('evidenceNote').textContent=state.run_id?'此处为开发板实际发送的在线状态，不包含虚构温湿度；未加载历史性能基准。':'当前未加载性能基准；业务来源将在接入后标注。';
 }
 function setConnection(ok) {
   connected = ok;

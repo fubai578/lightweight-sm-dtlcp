@@ -1,35 +1,58 @@
 # 国密传输实验台
 
-本地演示平台，当前阶段不连接真机、不启动网关、不生成或加载演示数据。统计显示 `—`，遥测与记录区保持空态。
+本地观测平台，显示实际 C 网关事件；没有数据时保持空态，不生成网页演示数据。
+目前已打通 **STM32F103C8T6 + W5500 终端 → UDP/DTLCP → 电脑 C 网关 → 网页**。
 
-## 启动
+## 启动与运行
 
-在项目根目录运行 `python apps/dashboard/server.py`，浏览器打开 <http://127.0.0.1:8765>。
-也可运行 `powershell -ExecutionPolicy Bypass -File scripts/start_dashboard.ps1`。
-Python 3.8+，仅使用标准库，无 npm 或 CDN 依赖。`--port 8766` 可修改网页端口。Ctrl+C 停止服务。
+1. 在项目根目录运行 `python apps/dashboard/server.py`，打开 <http://127.0.0.1:8765>。
+2. 选择 FULL、UDP 4433、12 条。启动网关后复位开发板；或者执行：
 
-## 当前功能
+   ```powershell
+   python scripts/run_board_dashboard.py
+   ```
 
-- 开发板终端 → 国密网关 → 实时观测的布局与空态。
-- FULL / RESUME / PSK / PSK 0-RTT 模式选择，IPv4、UDP 端口、条数设置。
-- 设置仅保存在页面内存，刷新重置，保存不触发连接。
-- 专注展示、全屏、事件筛选与搜索、暂停与恢复、录制指南。
-- 本机服务在线/离线状态，桌面与移动端适配。
-- 预留真实握手、遥测、ACK、字节统计与事件导出展示逻辑。
+   该脚本启动网关、通过 ST-Link 复位现有固件、等待 12 条真实收发并读取板端完成状态。
+   不烧录、不擦除。要求 pyocd、pyelftools 和已构建的对应 ELF。
+3. 页面实时显示事件。完成后可导出 JSON。重复运行时再次启动网关并复位终端。
 
-“启动网关”目前明确提示尚未启用接入，不执行 C 程序或网络连接。无记录时禁用导出。
-`/api/state` 与 `/api/export` 始终返回空态，`/api/start` 返回 HTTP 409，`/api/stop` 为空操作。
+网页服务只需 Python 标准库。服务保持启动后才可运行实验；Ctrl+C 停止。
+`powershell -ExecutionPolicy Bypass -File scripts/start_dashboard.ps1` 为便捷启动入口。
 
-## 后续接入约定
+## 当前固件与限制
 
-开发板作为终端、电脑作为网关，由 C 网关完成解密与验证后输出公开业务事件，本机服务转发给页面。
-页面不读网关内存，不展示私钥、PSK 或会话密钥。当前不修改密码算法、协议实现与终端固件。
+- 本轮接通 FULL 模式；RESUME、PSK、0-RTT 尚未适配该客户端固件，选择后会明确拒绝启动。
+- 电脑以太网 `169.254.33.63/16`，板端 `169.254.33.64/16`，UDP 4433。
+- 终端固件发 12 条 `TELEMETRY:F103:status=online` 在线状态上报。
+  **这是开发板真实发送的在线状态，不包含虚构的温湿度字段。**
+- 网关为每次成功接收分配接收序号；它不是来自板端的业务序号。
+- 网关 ACK 发送成功不代表终端收到；独立运行脚本通过 SWD 完成状态进一步确认板端收到 ACK。
+  SWD 确认保存在导出证据文件，不伪装成网页网关观测事件。
+- 页面保留最近 2,000 条事件，表格显示筛选后的最新 300 条；支持专注展示、全屏、搜索和暂停。
+- 协议握手耗时含等待终端与初始化的时间，不是算法微基准；未采集内部各阶段耗时。
+- 不加载历史 MCU 性能、算法加速比或功耗数据；无真实测量的指标继续显示 `—`。
+- 重放/篡改测试尚未接通，按钮保持禁用，拒绝计数未知。
+- 终端使用现有固定种子演示 PKI，仅用于实验。
 
-预留事件：ready（网关就绪）、handshake（握手完成）、wire（UDP 字节数）、telemetry（解保护后的业务内容）、
-ack_sent（网关发送成功，不代表终端收到）、error / finished（失败或完成）。
-时间显示上海时区，为本机事件接收时间；握手耗时不作为算法微基准。
+## 构建
 
-服务仅绑定 `127.0.0.1`，检查 Host / Origin，不允许访问任意本地文件。
+```powershell
+python scripts/build_gateway.py --cc "<可用 GCC 的绝对路径>"
+```
+
+本机 Anaconda 自带 GCC 5.3 编译浮点格式化时发生内部崩溃。本轮使用已安装 Octave 的 GCC 15.2 成功构建；
+运行完整 `scripts/run_tests.sh` 时将对应编译器目录置于 PATH 首位。
+
+ARM 固件仍通过 Git Bash 的 `bash embedded/cortex-m3/build.sh w5500_dtlcp` 构建。
+烧录命令为 `python -m pyocd flash -M under-reset -f 100k -t stm32f103rc -e chip embedded/cortex-m3/smc_m3_w5500_dtlcp.elf`。
+烧录会覆盖 Flash，执行前应另存现有固件；本轮原固件备份位于忽略入库的 `bin/board-before-dashboard.bin`。
+
+## 数据与接口
+
+C 网关通过可选 `--events` 在标准输出写入 `@dtlcp ` JSON；原命令行行为保留。
+Python 只消费结构化事件，不解析私钥、PSK 或会话缓存，不代替协议解密。
+接口 `/api/state` 支持游标，`/api/export` 返回实际本轮记录；`/api/start` 启动网关，`/api/stop` 停止。
+时间戳为本机接收事件的时间，显示上海时区。网页仅绑定本机，校验 Host / Origin。
 
 ## 检查
 
@@ -37,11 +60,3 @@ ack_sent（网关发送成功，不代表终端收到）、error / finished（�
 python -m unittest discover -s apps/dashboard -p "test_*.py"
 node --check apps/dashboard/static/app.js
 ```
-## 补充的观测空态
-
-连接详情区分配置地址与实际终端身份，配置端口与实际监听状态；保存设置和切换模式会同步显示配置值。
-握手过程预留阶段、结果、SM2 次数、航次数、数据报数与线上字节；没有真实事件时保持等待状态。
-安全验证区预留成功解保护、无效记录拒绝和重放拒绝统计，重放/篡改测试按钮禁用。
-本轮总结预留应用 RTT、业务字节和证据来源，主机、MCU 与历史数据来源分开标注。
-业务序号来自未来事件的 message_id，ACK 也必须按该序号关联，不根据时间先后推断确认。
-UDP 接收超时不能直接判定终端断开；平台离线也不构成会话已结束的证据。

@@ -37,7 +37,7 @@ Windows 用户使用 **Git Bash** 执行全部命令。
 ## 3. 快速开始
 
 本地演示平台：运行 `python apps/dashboard/server.py`，打开 <http://127.0.0.1:8765>。
-当前为平台准备阶段，页面保持空态，不接真机、不加载演示数据；使用说明见 `apps/dashboard/README.md`。
+已接通 F103 + W5500 的 FULL 模式，显示终端真实在线状态与网关事件；没有接入时保持空态，不加载演示数据。使用说明见 `apps/dashboard/README.md`。
 
 ```bash
 bash scripts/build.sh        # ① 构建：算法库 7 变体 + 全部测试 + demo + bench

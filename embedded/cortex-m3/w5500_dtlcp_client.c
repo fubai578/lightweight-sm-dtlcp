@@ -52,7 +52,7 @@ static int board_entropy(void *user, uint8_t *buf, size_t len)
 
 int main(void)
 {
-    static const uint8_t telemetry[] = "TELEMETRY:F103:temp=23.5,hum=61";
+    static const uint8_t telemetry[] = "TELEMETRY:F103:status=online";
     w5500_udp net = {
         {0x02, 0x53, 0x4d, 0x43, 0x00, 0x01},
         {169, 254, 33, 64}, {255, 255, 0, 0}, {0, 0, 0, 0},
@@ -62,7 +62,7 @@ int main(void)
     dtlcp_io io;
     dtlcp_stats stats;
     uint8_t reply[128];
-    int rc, n;
+    int rc, n, index;
 
     smc_port_init();
     memset((void *)w5500_dtlcp_results, 0, sizeof w5500_dtlcp_results);
@@ -111,6 +111,7 @@ int main(void)
     puts_uart("DTLCP_HANDSHAKE_OK");
 
     w5500_dtlcp_results[6] = (uint32_t)stats.sm2_ops;
+    for (index=0; index<12; index++) {
     rc = dtlcp_send(&g_ctx, telemetry, sizeof telemetry - 1u);
     if (rc != DTLCP_OK) {
         w5500_dtlcp_results[1] = 0xE3u;
@@ -122,6 +123,9 @@ int main(void)
         w5500_dtlcp_results[1] = 0xE4u;
         puts_uart("DTLCP_APP_FAIL");
         for (;;) { }
+    }
+    /* Presentation pacing only; independent of debugger-controlled DWT. */
+    { volatile uint32_t pause; for (pause=0; pause<800000u; pause++) { } }
     }
     w5500_dtlcp_results[1] = 3;
     w5500_dtlcp_results[8] = 1;

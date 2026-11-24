@@ -38,13 +38,13 @@
         </div>
       </section>
       <section class="panel identity-panel" aria-label="连接详情">
-        <div class="section-title"><h2>连接详情</h2><span class="subtle-label">配置与实际观测分开显示</span><span class="panel-meta">设备接入尚未启用</span></div>
+        <div class="section-title"><h2>连接详情</h2><span class="subtle-label">配置与实际观测分开显示</span><span class="panel-meta" id="integrationStatus">等待真实终端接入</span></div>
         <dl class="detail-grid">
-          <div><dt>网关运行状态</dt><dd>未启动</dd></div><div><dt>终端身份 / 实际地址</dt><dd>—</dd></div>
+          <div><dt>网关运行状态</dt><dd id="detailGateway">未启动</dd></div><div><dt>终端实际地址</dt><dd id="detailPeer">—</dd></div>
           <div><dt>配置的终端地址</dt><dd id="configuredPeer">未指定</dd></div><div><dt>配置的 UDP 端口</dt><dd id="configuredPort">4433 <small>尚未监听</small></dd></div>
-          <div><dt>选择的握手模式</dt><dd id="configuredMode">FULL</dd></div><div><dt>协商模式 / 密码套件</dt><dd>—</dd></div>
-          <div><dt>会话建立 / 结束时间</dt><dd>—</dd></div><div><dt>最近通信时间</dt><dd>—</dd></div>
-        </dl><p class="panel-footnote">尚无终端连接证据；接收超时、平台离线与会话结束将分别显示。</p>
+          <div><dt>选择的握手模式</dt><dd id="configuredMode">FULL</dd></div><div><dt>实际模式 / 密码套件</dt><dd id="detailSuite">—</dd></div>
+          <div><dt>会话建立 / 结束时间</dt><dd id="detailSessionTime">—</dd></div><div><dt>最近通信时间</dt><dd id="detailLastSeen">—</dd></div>
+        </dl><p class="panel-footnote">网关超时、平台离线与会话结束分别显示；终端身份认证由 FULL 握手完成，IP 地址不等同设备身份。</p>
       </section>
       <section class="metric-grid" aria-label="本轮统计">
         <article class="metric"><div class="metric-label">握手耗时<span>HANDSHAKE</span></div><div class="metric-value"><strong id="handshakeValue">—</strong><small>ms</small></div><p id="handshakeDetail">等待一次完整握手</p></article>
@@ -56,7 +56,7 @@
         <section class="panel telemetry-panel">
           <div class="section-title"><h2>终端遥测</h2><span class="subtle-label">解保护后的业务内容</span><span id="payloadTime" class="panel-meta">尚无消息</span></div>
           <div id="telemetryEmpty" class="telemetry-empty"><div class="empty-signal"><svg viewBox="0 0 48 48"><path d="M9 18a22 22 0 0 1 30 0M15 25a13 13 0 0 1 18 0m-12 7a4 4 0 0 1 6 0"/><circle cx="24" cy="39" r="2"/></svg></div><h3>等待第一条终端遥测</h3><p>接入终端并完成握手后，真实业务内容将在这里显示。</p><span class="empty-tag">当前未接入数据源</span></div>
-          <div id="telemetryLive" class="telemetry-live" hidden><div class="payload-heading"><span>最新接收内容</span><span class="verification">✓ 记录解保护成功</span></div><pre id="payload"></pre><div class="payload-properties"><span>消息序号<strong id="payloadSequence">—</strong></span><span>业务长度<strong id="payloadBytes">—</strong></span><span>接收时间<strong id="payloadTimestamp">—</strong></span><span>回执状态<strong id="payloadAck">—</strong></span></div></div>
+          <div id="telemetryLive" class="telemetry-live" hidden><div class="payload-heading"><span>最新接收内容</span><span class="verification">✓ 记录解保护成功</span></div><pre id="payload"></pre><div class="payload-properties"><span>网关接收序号<strong id="payloadSequence">—</strong></span><span>业务长度<strong id="payloadBytes">—</strong></span><span>接收时间<strong id="payloadTimestamp">—</strong></span><span>回执状态<strong id="payloadAck">—</strong></span></div></div>
         </section>
         <section class="panel session-panel">
           <div class="section-title"><h2>会话状态</h2><span class="panel-meta" id="sessionMode">FULL</span></div>
@@ -66,33 +66,33 @@
       </div>
       <div class="workspace-grid observation-grid">
         <section class="panel handshake-panel">
-          <div class="section-title"><h2>握手过程</h2><span class="subtle-label">按真实消息事件展开</span><span class="panel-meta">未开始</span></div>
-          <div class="handshake-overview"><span>握手结果<strong>尚未执行</strong></span><span>SM2 运算<strong>— <small>次</small></strong></span><span>航次数 / 数据报数<strong>— / —</strong></span><span>握手线上字节<strong>— <small>B</small></strong></span></div>
-          <ol class="handshake-timeline"><li><i></i><div><strong>等待终端发起握手</strong><p>尚未收到握手消息</p></div><time>—</time></li><li><i></i><div><strong>等待身份认证与密钥协商</strong><p>具体阶段以所选模式及协议事件为准</p></div><time>—</time></li><li><i></i><div><strong>等待握手完整性确认</strong><p>尚无成功或失败结果</p></div><time>—</time></li></ol>
+          <div class="section-title"><h2>握手过程</h2><span class="subtle-label">按真实网关事件展开</span><span class="panel-meta" id="handshakeStatus">未开始</span></div>
+          <div class="handshake-overview"><span>握手结果<strong id="handshakeResult">尚未执行</strong></span><span>网关 SM2 运算<strong id="handshakeSm2">—</strong></span><span>协议航次 / 网关收发包<strong id="handshakePackets">— / —</strong></span><span>握手线上字节<strong id="handshakeBytes">—</strong></span></div>
+          <ol class="handshake-timeline" id="handshakeTimeline"><li><i></i><div><strong>等待终端发起握手</strong><p>尚未收到握手消息</p></div><time>—</time></li><li><i></i><div><strong>等待身份认证与密钥协商</strong><p>具体阶段以所选模式及协议事件为准</p></div><time>—</time></li><li><i></i><div><strong>等待握手完整性确认</strong><p>尚无成功或失败结果</p></div><time>—</time></li></ol>
           <p class="panel-footnote">协议握手耗时与单项算法基准分开统计；航次数、数据报数和 RTT 分别记录。</p>
         </section>
         <section class="panel security-panel">
-          <div class="section-title"><h2>安全验证</h2><span class="panel-meta">尚无验证事件</span></div>
-          <dl class="security-results"><div><dt>记录解保护成功</dt><dd>— <small>条</small></dd></div><div><dt>无效记录被拒绝</dt><dd>— <small>条</small></dd></div><div><dt>重放记录被拒绝</dt><dd>— <small>条</small></dd></div><div><dt>最近拒绝原因</dt><dd>—</dd></div></dl>
+          <div class="section-title"><h2>安全验证</h2><span class="panel-meta" id="securityStatus">尚无验证事件</span></div>
+          <dl class="security-results"><div><dt>记录解保护成功</dt><dd id="securityAccepted">—</dd></div><div><dt>无效记录被拒绝</dt><dd>— <small>条</small></dd></div><div><dt>重放记录被拒绝</dt><dd>— <small>条</small></dd></div><div><dt>最近拒绝原因</dt><dd>—</dd></div></dl>
           <div class="security-actions"><button class="button secondary" disabled>重放测试 · 尚未接入</button><button class="button secondary" disabled>篡改测试 · 尚未接入</button></div>
           <p class="panel-footnote">验证结果仅由真实协议事件更新。测试入口在接入前保持禁用。</p>
         </section>
       </div>
       <section class="panel summary-panel">
-        <div class="section-title"><h2>本轮总结与证据来源</h2><span class="panel-meta">尚无实验</span></div>
-        <div class="summary-layout"><div><dl class="detail-grid summary-grid"><div><dt>实验编号</dt><dd>—</dd></div><div><dt>运行时长</dt><dd>—</dd></div><div><dt>平均应用 RTT</dt><dd>— <small>ms</small></dd></div><div><dt>最大应用 RTT</dt><dd>— <small>ms</small></dd></div><div><dt>应用接收 / 发送</dt><dd>— / — <small>B</small></dd></div><div><dt>业务闭环</dt><dd>等待遥测与 ACK 事件</dd></div></dl><p class="panel-footnote">ACK 仅表示网关已发送。应用 RTT 需要终端侧对应消息的计时反馈，不能用网关处理耗时代替。</p></div>
-        <div class="evidence-box"><h3>数据来源</h3><dl><div><dt>本轮网关数据</dt><dd>未接入</dd></div><div><dt>MCU 性能证据</dt><dd>未加载</dd></div><div><dt>测试硬件 / 固件版本</dt><dd>—</dd></div><div><dt>输入条件 / 对照版本</dt><dd>—</dd></div></dl><p>主机演示、MCU 实测与历史基准须分别标注；当前未加载任何性能数据。</p></div></div>
+        <div class="section-title"><h2>本轮总结与证据来源</h2><span class="panel-meta" id="summaryStatus">尚无实验</span></div>
+        <div class="summary-layout"><div><dl class="detail-grid summary-grid"><div><dt>实验编号</dt><dd id="summaryRun">—</dd></div><div><dt>运行时长</dt><dd id="summaryDuration">—</dd></div><div><dt>平均应用 RTT</dt><dd>— <small>ms</small></dd></div><div><dt>最大应用 RTT</dt><dd>— <small>ms</small></dd></div><div><dt>应用接收 / 发送</dt><dd id="summaryAppBytes">— / — B</dd></div><div><dt>业务闭环</dt><dd id="summaryBusiness">等待遥测与 ACK 事件</dd></div></dl><p class="panel-footnote">ACK 仅表示网关已发送。应用 RTT 需要终端侧对应消息的计时反馈，不能用网关处理耗时代替。</p></div>
+        <div class="evidence-box"><h3>数据来源</h3><dl><div><dt>本轮网关数据</dt><dd id="evidenceGateway">未接入</dd></div><div><dt>MCU 性能证据</dt><dd>未加载</dd></div><div><dt>测试硬件 / 固件版本</dt><dd id="evidenceHardware">—</dd></div><div><dt>输入条件 / 对照版本</dt><dd id="evidenceInput">—</dd></div></dl><p><span id="evidenceNote">当前未加载性能基准；业务来源将在接入后标注。</span></p></div></div>
       </section>
       <section class="panel records-panel">
         <div class="section-title records-title"><h2>通信事件记录</h2><span id="recordCount" class="count-badge">0</span><div class="record-tools"><div class="filter-tabs" aria-label="记录筛选"><button class="active" data-filter="all">全部</button><button data-filter="business">业务收发</button><button data-filter="session">会话事件</button></div><label class="search-box"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="search" placeholder="搜索内容或事件" aria-label="搜索记录"></label><button id="pauseButton" class="icon-button" title="暂停画面更新" aria-label="暂停画面更新"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button></div></div>
-        <div class="table-scroll"><table><thead><tr><th>时间</th><th>事件 / 结果</th><th>方向 / 来源</th><th>消息序号</th><th>字节</th><th>内容与结果</th></tr></thead><tbody id="records"></tbody></table><div id="recordsEmpty" class="records-empty"><svg viewBox="0 0 32 32"><path d="M7 5h18v22H7Z M11 11h10m-10 5h10m-10 5h6"/></svg><strong>暂无通信记录</strong><span>接入数据后，握手、遥测与 ACK 事件将按时间排列。</span></div></div>
+        <div class="table-scroll"><table><thead><tr><th>时间</th><th>事件 / 结果</th><th>方向 / 来源</th><th>接收序号</th><th>字节</th><th>内容与结果</th></tr></thead><tbody id="records"></tbody></table><div id="recordsEmpty" class="records-empty"><svg viewBox="0 0 32 32"><path d="M7 5h18v22H7Z M11 11h10m-10 5h10m-10 5h6"/></svg><strong>暂无通信记录</strong><span>接入数据后，握手、遥测与 ACK 事件将按时间排列。</span></div></div>
         <div class="records-footer"><span id="recordFooter">等待真实网关事件</span><span>时间为本机事件接收时间 · 最多保留 2,000 条</span></div>
       </section>
-      <footer class="page-footer"><span><i></i>本地观测 · 当前未接入数据源</span><span>资源受限物联网终端轻量级国密算法优化与 DTLCP 国密改造实现</span></footer>
+      <footer class="page-footer"><span><i></i>本地观测 · 仅显示实际网关事件</span><span>资源受限物联网终端轻量级国密算法优化与 DTLCP 国密改造实现</span></footer>
     </main>
   </div>
   <dialog id="settingsDialog"><form id="settingsForm"><div class="dialog-heading"><div><p class="eyebrow">GATEWAY CONFIGURATION</p><h2>连接设置</h2></div><button type="button" class="icon-button" data-close="settingsDialog" aria-label="关闭">✕</button></div><p class="dialog-intro">开发板作为终端，电脑作为网关。保存设置不会连接设备。</p><label class="field">开发板 IPv4 地址 <small>可选；填写后网关发送网络探测包，以建立防火墙返回路径</small><input id="peer" placeholder="留空时等待终端主动连接" autocomplete="off"></label><div class="field-row"><label class="field">UDP 端口<input id="udpPort" type="number" min="1024" max="65535" value="4433" required></label><label class="field">本轮接收条数<input id="messageCount" type="number" min="1" max="100" value="12" required></label></div><p class="field-help">完整握手后才可在同一连接配置下恢复会话。0-RTT 模式另接收一条早期数据。终端模式与条数须保持一致。</p><div class="dialog-actions"><button type="button" class="button secondary" data-close="settingsDialog">取消</button><button class="button primary" type="submit">保存设置</button></div></form></dialog>
-  <dialog id="guideDialog"><div class="dialog-heading"><div><p class="eyebrow">RECORDING GUIDE</p><h2>演示录制指南</h2></div><button class="icon-button" data-close="guideDialog" aria-label="关闭">✕</button></div><p class="dialog-intro">当前页面保持空态，不包含演示数据。后续接入真实终端时可按以下顺序录制。</p><ol class="guide-list"><li><strong>准备链路</strong><p>连接开发板与网络，确认终端固件、握手模式和网关配置一致。</p></li><li><strong>启动网关</strong><p>点击启动后再启动终端，展示从网关就绪到安全握手的过程。</p></li><li><strong>展示业务</strong><p>观察真实遥测、记录解保护结果和网关 ACK；网关发送成功不代表终端已收到回执。</p></li><li><strong>整理画面</strong><p>使用“专注展示”与全屏；需要讲解时暂停画面更新，后台仍持续接收。</p></li><li><strong>保存本轮记录</strong><p>导出公开事件 JSON。导出内容包含业务明文，不包含密钥和会话缓存。</p></li></ol></dialog>
+  <dialog id="guideDialog"><div class="dialog-heading"><div><p class="eyebrow">RECORDING GUIDE</p><h2>演示录制指南</h2></div><button class="icon-button" data-close="guideDialog" aria-label="关闭">✕</button></div><p class="dialog-intro">当前支持 F103 + W5500 终端 FULL 模式。终端固件每轮真实发送 12 条在线状态，不填充温湿度或历史演示数据。</p><ol class="guide-list"><li><strong>准备链路</strong><p>连接开发板与网络，确认终端固件、握手模式和网关配置一致。</p></li><li><strong>启动网关</strong><p>点击启动后再启动终端，展示从网关就绪到安全握手的过程。</p></li><li><strong>展示业务</strong><p>观察真实遥测、记录解保护结果和网关 ACK；网关发送成功不代表终端已收到回执。</p></li><li><strong>整理画面</strong><p>使用“专注展示”与全屏；需要讲解时暂停画面更新，后台仍持续接收。</p></li><li><strong>保存本轮记录</strong><p>导出公开事件 JSON。导出内容包含业务明文，不包含密钥和会话缓存。</p></li></ol></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
 </body>
 </html>

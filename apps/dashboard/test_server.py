@@ -1,4 +1,4 @@
-"""Verify the platform stays empty and cannot initiate device connections."""
+"""Verify idle state, control validation and real event aggregation."""
 import importlib.util
 import json
 from pathlib import Path
@@ -38,10 +38,10 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(data["metrics"], {})
             self.assertIsNone(data["handshake"])
 
-    def test_start_disabled_and_preserves_empty_state(self):
+    def test_unsupported_mode_preserves_empty_state(self):
         with self.assertRaises(HTTPError) as caught:
-            self.request("/api/start", b'{"mode":"full"}', {"Content-Type":"application/json"})
-        self.assertEqual(caught.exception.code, 409)
+            self.request("/api/start", b'{"mode":"psk"}', {"Content-Type":"application/json"})
+        self.assertEqual(caught.exception.code, 400)
         self.assertEqual(server.EXPERIMENT.snapshot()["events"], [])
 
     def test_cross_origin_and_rebound_host_rejected(self):
@@ -61,6 +61,16 @@ class DashboardTests(unittest.TestCase):
             with self.request(route) as response:
                 self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
                 self.assertGreater(len(response.read()), 100)
+
+    def test_aggregation_uses_only_received_events(self):
+        experiment = server.Experiment()
+        self.assertEqual(experiment.snapshot()["metrics"], {})
+        experiment.publish(dict(type="wire",direction="rx",bytes=70))
+        experiment.publish(dict(type="telemetry",message_id=1,bytes=25,text="test"))
+        experiment.publish(dict(type="ack_sent",message_id=1,bytes=15,text="ack"))
+        snapshot=experiment.snapshot()
+        self.assertEqual(snapshot["metrics"],dict(wire_rx=70,received=1,app_bytes=25,acks=1,app_sent=15))
+        self.assertEqual(len(experiment.snapshot(after=2)["events"]),1)
 
     def test_non_json_control_request_rejected(self):
         with self.assertRaises(HTTPError) as caught:
