@@ -1,0 +1,3 @@
+variant	compress_function	compress_frame_bytes	path_lower_bound_bytes	path
+before	before_sm3_compress	368	632	before_sm3 > before_sm3_final > before_sm3_update > before_sm3_compress
+after	sm3_compress	224	488	sm3 > sm3_final > sm3_update > sm3_compress

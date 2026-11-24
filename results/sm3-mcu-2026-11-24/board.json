@@ -1,0 +1,103 @@
+{
+  "baseline_ref": "e0c782a",
+  "compiler": "arm-none-eabi-gcc.exe (Arm GNU Toolchain 14.2.Rel1 (Build arm-14.52)) 14.2.1 20241119",
+  "hardware": "STM32F103C8T6 Cortex-M3, HSI 8MHz",
+  "flags": [
+    "-std=c99",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-fstack-usage",
+    "-DSMC_SM3_KERNEL=4",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-mcpu=cortex-m3",
+    "-mthumb",
+    "-ffreestanding",
+    "-DSM3_AB_BOARD"
+  ],
+  "rounds": 7,
+  "repeats_per_sample": 8,
+  "method": "alternating old/new order; min of seven batches",
+  "failures": 0,
+  "checks": 538,
+  "compress_stack_frame_bytes": {
+    "before": 368,
+    "after": 224
+  },
+  "before_source_sha256": "09e94d2ec4f4cc59019d17ceafa8aa85ca077199dca6c0f600eb2881b53500e3",
+  "after_source_sha256": "258c580886809e365163192e0a9d73ed7442ec67aadc8197aa15326c4420fb62",
+  "firmware_sha256": "e317216aa5a3fe9dd97005f72354193a5f139429a3fbc11415454cb355f48cc7",
+  "operations": [
+    {
+      "operation": "sm3_0B",
+      "before_cycles": 5029,
+      "after_cycles": 3419,
+      "speedup": 1.4708979233694062,
+      "cycle_reduction_pct": 32.01431696162259
+    },
+    {
+      "operation": "sm3_28B",
+      "before_cycles": 5533,
+      "after_cycles": 3923,
+      "speedup": 1.4104002039255672,
+      "cycle_reduction_pct": 29.098138442074823
+    },
+    {
+      "operation": "sm3_55B",
+      "before_cycles": 5263,
+      "after_cycles": 3653,
+      "speedup": 1.4407336435806186,
+      "cycle_reduction_pct": 30.590917727531824
+    },
+    {
+      "operation": "sm3_56B",
+      "before_cycles": 10038,
+      "after_cycles": 6818,
+      "speedup": 1.4722792607802875,
+      "cycle_reduction_pct": 32.07810320781032
+    },
+    {
+      "operation": "sm3_64B",
+      "before_cycles": 9492,
+      "after_cycles": 6272,
+      "speedup": 1.5133928571428572,
+      "cycle_reduction_pct": 33.92330383480826
+    },
+    {
+      "operation": "sm3_65B",
+      "before_cycles": 10266,
+      "after_cycles": 7046,
+      "speedup": 1.4569968776610842,
+      "cycle_reduction_pct": 31.365673095655563
+    },
+    {
+      "operation": "sm3_256B",
+      "before_cycles": 22890,
+      "after_cycles": 14840,
+      "speedup": 1.5424528301886793,
+      "cycle_reduction_pct": 35.16819571865443
+    },
+    {
+      "operation": "sm3_1KB",
+      "before_cycles": 76482,
+      "after_cycles": 49112,
+      "speedup": 1.5572976054732042,
+      "cycle_reduction_pct": 35.78619805967417
+    },
+    {
+      "operation": "sm3_4KB",
+      "before_cycles": 290850,
+      "after_cycles": 186200,
+      "speedup": 1.5620300751879699,
+      "cycle_reduction_pct": 35.98074608904934
+    },
+    {
+      "operation": "hmac_sm3_256B",
+      "before_cycles": 38145,
+      "after_cycles": 25265,
+      "speedup": 1.509796160696616,
+      "cycle_reduction_pct": 33.76589330187443
+    }
+  ]
+}

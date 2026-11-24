@@ -1,0 +1,4 @@
+   text	   data	    bss	    dec	    hex	filename
+   1080	      0	      0	   1080	    438	D:\������\lightweight-sm-dtlcp\bin\sm3-ab\final\before.o
+   3616	      0	      0	   3616	    e20	D:\������\lightweight-sm-dtlcp\bin\sm3-ab\final\after.o
+   6508	      0	   4272	  10780	   2a1c	D:\������\lightweight-sm-dtlcp\bin\sm3-ab\final\ab.elf

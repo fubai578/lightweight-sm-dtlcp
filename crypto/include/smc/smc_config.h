@@ -44,7 +44,7 @@
 #define SMC_KERNEL_FAST  2   /* SM4: T-table 展开 */
 #define SMC_KERNEL_TINY  3   /* SM3: 最小栈 */
 #define SMC_KERNEL_SMALL 3   /* SM4: 最小常量表 */
-#define SMC_KERNEL_MCU   4   /* SM3: W[68] + 即时 W'，面向顺序执行 MCU */
+#define SMC_KERNEL_MCU   4   /* SM3: W[16] 滚动调度 + 16 轮展开，面向顺序执行 MCU */
 #define SMC_KERNEL_OPT   2
 
 #ifndef SMC_SM3_KERNEL

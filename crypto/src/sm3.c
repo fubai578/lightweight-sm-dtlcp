@@ -5,7 +5,7 @@
  *   REF  : 教科书式消息扩展（W[68] + W'[64] 全数组），性能基线
  *   FAST : 消息扩展 2 路批量 + 压缩 8 轮展开 + load/store 合并（默认，最快）
  *   TINY : 消息扩展滚动 16 字环形缓冲 + 4 字流水，压缩栈 < 100 B（最小内存）
- *   MCU  : 仅保留 W[68]，W' 即时异或；拆分两类轮函数，减少栈访存与每轮分支
+ *   MCU  : W[16] 滚动调度 + 寄存器角色轮换 + 后 48 轮按 16 轮展开，降低栈与周期
  */
 #include "smc/sm3.h"
 
@@ -198,42 +198,76 @@ void sm3_compress(uint32_t h[8], const uint8_t block[SMC_SM3_BLOCK])
 /* ------------------------------------------------------------------ */
 #elif SMC_SM3_KERNEL == SMC_KERNEL_MCU
 
+/* W[r+4] is generated immediately before round r. Its sixteen-word slot
+ * still contains W[r-12]; the other inputs are W[r-5], W[r+1], W[r-9],
+ * W[r-2]. Round r consumes W[r] before it can be overwritten.
+ * Four steps rotate working-register roles back to their original mapping;
+ * a group of sixteen makes every rolling-buffer index a compile-time constant.
+ * All 64 standard rounds and the standard padding remain unchanged. */
 void sm3_compress(uint32_t h[8], const uint8_t block[SMC_SM3_BLOCK])
 {
-    uint32_t w[68];
-    uint32_t a, b, c, d, e, f, g, hh, tj;
+    uint32_t w[16];
+    uint32_t a=h[0], b=h[1], c=h[2], d=h[3];
+    uint32_t e=h[4], f=h[5], g=h[6], hh=h[7], tj;
     int j;
+    for (j=0;j<16;j++) w[j]=load_be32(block+4*j);
 
-    for (j = 0; j < 16; j++) w[j] = load_be32(block + 4 * j);
-    for (j = 16; j < 68; j++) {
-        w[j] = P1(w[j - 16] ^ w[j - 9] ^ ROTL(w[j - 3], 15)) ^
-               ROTL(w[j - 13], 7) ^ w[j - 6];
+#define MCU_STEP(A,B,C,D,E,F,G,H,FF,GG,W,WP) do { \
+    uint32_t a12=ROTL((A),12); \
+    uint32_t ss1=ROTL(a12+(E)+tj,7); \
+    uint32_t tt1=(FF)+ (D)+(ss1^a12)+(WP); \
+    uint32_t tt2=(GG)+ (H)+ss1+(W); \
+    (B)=ROTL((B),9); (F)=ROTL((F),19); \
+    (D)=tt1; (H)=P0(tt2); tj=ROTL(tj,1); \
+} while(0)
+#define MCU_RAW(R,A,B,C,D,E,F,G,H) \
+    MCU_STEP(A,B,C,D,E,F,G,H,FF0(A,B,C),GG0(E,F,G),w[R],w[R]^w[(R)+4])
+#define MCU_EXPAND(R,A,B,C,D,E,F,G,H,FF,GG) do { \
+    uint32_t next=P1(w[((R)+4)&15]^w[((R)+11)&15]^ROTL(w[((R)+1)&15],15)) \
+                  ^ROTL(w[((R)+7)&15],7)^w[((R)+14)&15]; \
+    uint32_t current=w[(R)&15]; \
+    w[((R)+4)&15]=next; \
+    MCU_STEP(A,B,C,D,E,F,G,H,FF,GG,current,current^next); \
+} while(0)
+#define MCU_LATE(R,A,B,C,D,E,F,G,H) \
+    MCU_EXPAND(R,A,B,C,D,E,F,G,H,FF1(A,B,C),GG1(E,F,G))
+
+    tj=T0;
+    for (j=0;j<12;j+=4) {
+        MCU_RAW(j,  a,b,c,d,e,f,g,hh);
+        MCU_RAW(j+1,d,a,b,c,hh,e,f,g);
+        MCU_RAW(j+2,c,d,a,b,g,hh,e,f);
+        MCU_RAW(j+3,b,c,d,a,f,g,hh,e);
     }
-
-    a = h[0]; b = h[1]; c = h[2]; d = h[3];
-    e = h[4]; f = h[5]; g = h[6]; hh = h[7];
-
-#define SM3_MCU_ROUND(ff_, gg_)                                             \
-    do {                                                                    \
-        uint32_t a12 = ROTL(a, 12);                                         \
-        uint32_t ss1 = ROTL(a12 + e + tj, 7);                               \
-        uint32_t tt1 = (ff_) + d + (ss1 ^ a12) + (w[j] ^ w[j + 4]);         \
-        uint32_t tt2 = (gg_) + hh + ss1 + w[j];                             \
-        d = c; c = ROTL(b, 9); b = a; a = tt1;                              \
-        hh = g; g = ROTL(f, 19); f = e; e = P0(tt2);                        \
-        tj = ROTL(tj, 1);                                                    \
-    } while (0)
-
-    tj = T0;
-    for (j = 0; j < 16; j++) SM3_MCU_ROUND(FF0(a, b, c), GG0(e, f, g));
-
-    tj = ROTL(T1, 16);
-    for (j = 16; j < 64; j++) SM3_MCU_ROUND(FF1(a, b, c), GG1(e, f, g));
-
-#undef SM3_MCU_ROUND
-
-    h[0] ^= a; h[1] ^= b; h[2] ^= c; h[3] ^= d;
-    h[4] ^= e; h[5] ^= f; h[6] ^= g; h[7] ^= hh;
+    MCU_EXPAND(12,a,b,c,d,e,f,g,hh,FF0(a,b,c),GG0(e,f,g));
+    MCU_EXPAND(13,d,a,b,c,hh,e,f,g,FF0(d,a,b),GG0(hh,e,f));
+    MCU_EXPAND(14,c,d,a,b,g,hh,e,f,FF0(c,d,a),GG0(g,hh,e));
+    MCU_EXPAND(15,b,c,d,a,f,g,hh,e,FF0(b,c,d),GG0(f,g,hh));
+    tj=ROTL(T1,16);
+    for (j=16;j<64;j+=16) {
+        MCU_LATE(0,a,b,c,d,e,f,g,hh);
+        MCU_LATE(1,d,a,b,c,hh,e,f,g);
+        MCU_LATE(2,c,d,a,b,g,hh,e,f);
+        MCU_LATE(3,b,c,d,a,f,g,hh,e);
+        MCU_LATE(4,a,b,c,d,e,f,g,hh);
+        MCU_LATE(5,d,a,b,c,hh,e,f,g);
+        MCU_LATE(6,c,d,a,b,g,hh,e,f);
+        MCU_LATE(7,b,c,d,a,f,g,hh,e);
+        MCU_LATE(8,a,b,c,d,e,f,g,hh);
+        MCU_LATE(9,d,a,b,c,hh,e,f,g);
+        MCU_LATE(10,c,d,a,b,g,hh,e,f);
+        MCU_LATE(11,b,c,d,a,f,g,hh,e);
+        MCU_LATE(12,a,b,c,d,e,f,g,hh);
+        MCU_LATE(13,d,a,b,c,hh,e,f,g);
+        MCU_LATE(14,c,d,a,b,g,hh,e,f);
+        MCU_LATE(15,b,c,d,a,f,g,hh,e);
+    }
+#undef MCU_LATE
+#undef MCU_EXPAND
+#undef MCU_RAW
+#undef MCU_STEP
+    h[0]^=a; h[1]^=b; h[2]^=c; h[3]^=d;
+    h[4]^=e; h[5]^=f; h[6]^=g; h[7]^=hh;
 }
 
 #else
