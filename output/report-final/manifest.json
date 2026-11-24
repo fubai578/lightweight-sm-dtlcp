@@ -1,0 +1,109 @@
+{
+  "report": "作品设计报告_修订18.docx",
+  "report_sha256": "33ebd994a215a949c33045ab7fcbdedd79f2378579ba74e395af09951385d185",
+  "pages": 54,
+  "model": "gpt-image-2.6-flare",
+  "generated_principle_figures": 9,
+  "plotted_measurement_figures": 3,
+  "actual_platform_capture": 1,
+  "unchanged_existing_figures": 5,
+  "figures": [
+    {
+      "figure": "图1-1 需求背景与三重资源瓶颈",
+      "file": "figures/fig1-1.png",
+      "sha256": "bb86aeda436caab0930b302b260d718c0af33b882428184dbc763786f7d51415"
+    },
+    {
+      "figure": "图1-2 作品功能模块矩阵",
+      "file": "figures/fig1-2.png",
+      "sha256": "2ffd6e1c55ba40d3e134935b2f3b791d4b9cb4e4b86f3c948d7179411e5e0e6a"
+    },
+    {
+      "figure": "图2-1 系统总体架构图",
+      "file": "figures/fig2-1.png",
+      "sha256": "537b683f7407a6710a189dce657319a39a035873458e7acaa89441e89ddced63"
+    },
+    {
+      "figure": "图2-2 多档内核与差分验证",
+      "file": "figures/fig2-2.png",
+      "sha256": "9f4c0253d043806f55fc3fdaa04e6b4f588f8e01d332636ffa4490e23bea3539"
+    },
+    {
+      "figure": "图2-3 SM3滚动内核与SM4查表路径",
+      "file": "figures/fig2-3.png",
+      "sha256": "3cfaf7f71acdbe91474d81e7c35b835fea6eee267e9e9021b46a212e9d344e9f"
+    },
+    {
+      "figure": "图2-4 SM2域运算与标量乘分流",
+      "file": "figures/fig2-4.png",
+      "sha256": "64a82d9c5c22b2f41ae780949b8a48c897e682af57968e06f505f4c055c43251"
+    },
+    {
+      "figure": "图2-5 Lim-Lee comb 预计算表的结构与生成",
+      "file": "figures/fig2-5.png",
+      "sha256": "4aca7e8972e45453ff7affe00dc66afd0dfc064c4254856bc6f4cea4a6507c88"
+    },
+    {
+      "figure": "图2-6 常量时间构建中的预计算表访问与结果选择",
+      "file": "figures/fig2-6.png",
+      "sha256": "861ba267339fdae9bf0dc848c4a8497a86703965662cf8b879baa1573b97c49c"
+    },
+    {
+      "figure": "图2-7 DTLCP记录层与密钥调度",
+      "file": "figures/fig2-7.png",
+      "sha256": "da6b3a7148f8aca64f44b76e4270d38d745643cf1de874a1b597109e1cecea4b"
+    },
+    {
+      "figure": "图2-8 DTLCP 完整握手（FULL）报文时序",
+      "file": "figures/fig2-8.png",
+      "sha256": "e1e1a3ccbd0fa82ff2a066e40ea9c287408ffec1ce9ae6ff9bd9cc3cbab533c6"
+    },
+    {
+      "figure": "图2-9 软件工作流程与嵌入式移植",
+      "file": "figures/fig2-9.png",
+      "sha256": "766f4f74e735b98bbc4b0dca012884b64ed8e8b5cba0ece638399ea8c3f64266"
+    },
+    {
+      "figure": "图3-1 F103单项优化的同固件A/B结果",
+      "file": "figures/fig3-1.png",
+      "sha256": "fabbd39ccbad71a31f0df61c48984b89b8151147ec825c10e4f77e5af3837d94"
+    },
+    {
+      "figure": "图3-2 终端启动与连接恢复的分阶段测量",
+      "file": "figures/fig3-2.png",
+      "sha256": "8e28ecdcc6e3132f2a20e541504fe784ba5906438615a045ef2869572df64a6b"
+    },
+    {
+      "figure": "图3-3 F103与W5500实验硬件连接",
+      "file": "figures/fig3-3.jpeg",
+      "sha256": "06cfbd895a357593249dd369b1d14e457a39d2daae78482c6f7000ebd251709d"
+    },
+    {
+      "figure": "图3-4 真实通信事件与安全拒绝观测",
+      "file": "figures/fig3-4.png",
+      "sha256": "c3a0edeacd8b2758f64611840f54319ba1a604249bb691685997df3b99f569e9"
+    },
+    {
+      "figure": "图3-5 当前网络客户端与协议资源预算",
+      "file": "figures/fig3-5.png",
+      "sha256": "ac6c1f73666d514b1cf54014a79c5d15872e967c7c9309d06b36aee04df3b494"
+    },
+    {
+      "figure": "图3-6 F103板端功耗",
+      "file": "figures/fig3-6.jpeg",
+      "sha256": "d91d280c70c0179be1286679260c7b42ebc0d1f19bfd39e565fafbecd339aa4d"
+    },
+    {
+      "figure": "图4-1 典型应用场景与配置选配",
+      "file": "figures/fig4-1.png",
+      "sha256": "50872fdb4e36cb163b51c2ec7959d355a396aa071013ee9363eaf8e7b9dff6e5"
+    }
+  ],
+  "evidence": [
+    "results/sm3-mcu-2026-11-24/board.json",
+    "results/sm2-square-2026-11-24/board.json",
+    "results/sm2-square-2026-11-24/protocol-after.json",
+    "results/sm2-square-2026-11-24/resume-after.json",
+    "results/security-demo-2026-11-24/real-board-events.json"
+  ]
+}

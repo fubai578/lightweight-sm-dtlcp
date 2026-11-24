@@ -33,3 +33,6 @@ Thumbs.db
 
 # 本地报告工作稿（含作者元数据，禁止入库）
 作品设计报告*.docx
+
+# 本地最终配图下载包，图源和清单单独入库
+output/report-final/*.zip
