@@ -1,0 +1,8 @@
+{
+  "model": "gpt-image-2.6-flare",
+  "reference_count": 1,
+  "method": "user-authorized direct image edit API",
+  "response_format": "base64",
+  "output": "assembled-experiment.png",
+  "nature": "AI-generated experiment connection scene illustration; not an actual experiment photograph"
+}
