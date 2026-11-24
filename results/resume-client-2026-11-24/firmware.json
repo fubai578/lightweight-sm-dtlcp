@@ -1,0 +1,7 @@
+{
+  "sha256": "1f299000ccd44b478af2725918a5a7d73d0b60a0cf4446c5eed4cc7d149e365b",
+  "hardware": "STM32F103C8T6 + W5500",
+  "text": 29076,
+  "data": 8,
+  "bss": 10440
+}

@@ -25,6 +25,7 @@ class DashboardTests(unittest.TestCase):
         cls.httpd.shutdown()
         cls.httpd.server_close()
         cls.thread.join()
+        server.EXPERIMENT.session_dir.cleanup()
 
     def request(self, path, data=None, headers=None):
         return urlopen(Request(self.base + path, data=data, headers=headers or {}), timeout=3)
@@ -43,6 +44,12 @@ class DashboardTests(unittest.TestCase):
             self.request("/api/start", b'{"mode":"psk"}', {"Content-Type":"application/json"})
         self.assertEqual(caught.exception.code, 400)
         self.assertEqual(server.EXPERIMENT.snapshot()["events"], [])
+
+    def test_resume_without_cache_rejected(self):
+        with self.assertRaises(HTTPError) as caught:
+            self.request("/api/start", b'{"mode":"resume"}', {"Content-Type":"application/json"})
+        self.assertEqual(caught.exception.code,400)
+        self.assertFalse(server.EXPERIMENT.snapshot()["resume_available"])
 
     def test_cross_origin_and_rebound_host_rejected(self):
         for headers in ({"Origin":"https://example.invalid"}, {"Host":"example.invalid"}):
@@ -69,6 +76,7 @@ class DashboardTests(unittest.TestCase):
         experiment.publish(dict(type="telemetry",message_id=1,bytes=25,text="test"))
         experiment.publish(dict(type="ack_sent",message_id=1,bytes=15,text="ack"))
         snapshot=experiment.snapshot()
+        experiment.session_dir.cleanup()
         self.assertEqual(snapshot["metrics"],dict(wire_rx=70,received=1,app_bytes=25,acks=1,app_sent=15))
         self.assertEqual(len(experiment.snapshot(after=2)["events"]),1)
 

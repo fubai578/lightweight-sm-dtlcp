@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start a real FULL experiment, reset the attached F103, and save evidence.
+"""Run real FULL (reset) or RESUME (no reset) and save F103 evidence.
 
 Requires the dashboard server and the 12-message W5500 client firmware.
 Does not flash or erase the board. No telemetry is synthesized by this script.
@@ -15,6 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port",type=int,default=8765)
     parser.add_argument("--output",type=Path,default=Path("bin/live-board-dashboard.json"))
+    parser.add_argument("--mode", choices=("full","resume"), default="full")
     args = parser.parse_args()
     from pyocd.core.helpers import ConnectHelper
     from board_bench import find_symbol
@@ -37,7 +38,7 @@ def main():
     if session is None:
         raise RuntimeError("No debug probe found")
     with session:
-        post("/api/start",dict(mode="full",count=12,udp_port=4433))
+        post("/api/start",dict(mode=args.mode,count=12,udp_port=4433))
         try:
             deadline = time.monotonic()+10
             while state()["status"]=="starting":
@@ -47,8 +48,18 @@ def main():
             if state()["status"]!="waiting":
                 raise RuntimeError("Gateway failed before board reset")
             target = session.board.target
-            target.reset()
-            target.resume()
+            if args.mode == "full":
+                target.reset()
+                target.resume()
+            else:
+                target.halt()
+                board = target.read_memory_block32(address,10)
+                if board[0] != 0x44544c31 or board[1] != 3:
+                    target.resume()
+                    raise RuntimeError("Board must have completed FULL; do not reset before RESUME")
+                command = find_symbol(elf,"w5500_dtlcp_command")
+                target.write32(command,1)
+                target.resume()
             deadline = time.monotonic()+120
             while True:
                 result = state()

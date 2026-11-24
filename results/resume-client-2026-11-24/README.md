@@ -1,0 +1,45 @@
+# F103 客户端重复连接优化：FULL → RESUME
+
+本轮将已有协议恢复能力接通到实际 F103 客户端、C 网关与网页，未改变密码算法或声称发明新的恢复协议。
+
+## 同轮真机结果
+
+| 指标 | FULL | RESUME |
+|---|---:|---:|
+| 首个收到的数据报至握手完成 | 4694.712 ms | 50.394 ms |
+| 握手双向字节 | 1198 B | 428 B |
+| SM2 运算 | 5 | 0 |
+| 成功业务条数 / ACK 已发送 | 12 / 12 | 12 / 12 |
+
+本轮握手时间比为 93.16×；握手字节减少 64.27%。
+均为单轮同板、同网络观测，不代表稳定分布或算法微基准。额外连续 RESUME 再运行一次也完成 12/12。
+三轮均通过 SWD state=3、application_success=1 确认板端收到回执。
+
+时间新口径 active_elapsed_us 从网关首次 UDP 接收到 dtlcp_accept 成功；旧 elapsed_us 包含等待终端，仍完整保留。
+排除的部分包括网关等待、板端 PKI 初始化与首次发包前工作；该结果不是端到端上电就绪延迟。
+原 hs_flights 混合计算收发数据报，不严格等同协议航次，页面标注为旧计数器，不能用于 RTT 推算。
+
+## 实现和代价
+
+- 板端在 RAM 保存 dtlcp_session，通过 SWD 公开命令邮箱请求 RESUME，保留当前缓存，不复位。
+- 网关在进程专属临时目录保存缓存，用已有 --save-session / --load-session；HTTP 不暴露缓存。
+- 恢复前重新初始化 W5500 UDP socket，清理上轮残留探测包，避免新握手读到旧数据。
+- 固件 text 28988→29076 B（+88 B）；bss 10352→10440 B（+88 B），data 8 B 不变。
+- FULL 与 RESUME 使用相同测试 PKI、同一网络；业务载荷仅真实上报 status=online。
+- 复位/断电丢失板端缓存，平台重启丢失可用标志。失败或停止使平台缓存不可用，须重新 FULL。
+- 缓存仅用于实验，不提供生产级持久化、寿命策略或多终端缓存管理；RESUME 复用 master，不提供新的 ECDHE 前向保密。
+- PSK/0-RTT 仍不支持本固件，页面不会自动替代运行。
+
+## 复现
+
+启动网页服务并烧录本轮 w5500_dtlcp 固件后执行：
+
+```powershell
+python scripts/run_board_dashboard.py --output bin/full.json
+python scripts/run_board_dashboard.py --mode resume --output bin/resume.json
+```
+
+第二步不可按复位键。SWD 仅用于实验触发和独立完成态检查，不读取或向网页传输密钥。
+网页启动按钮只启动网关；板端动作由脚本触发，不声称已实现远程唤醒。
+
+证据 full.json、restored.json、repeat.json 为真实公开事件与 SWD 完成态，未包含会话缓存。

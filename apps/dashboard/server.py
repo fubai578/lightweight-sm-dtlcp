@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local dashboard shell. Device integration is intentionally disabled."""
+"""Observe real F103 FULL and RESUME gateway experiments."""
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 from collections import deque
 import uuid
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -33,6 +34,8 @@ class Experiment:
         self.cancelled = False
         self.started = None
         self.ended = None
+        self.cache_ready = False
+        self.session_dir = tempfile.TemporaryDirectory(prefix="dtlcp-resume-")
 
     def publish(self, event):
         with self.lock:
@@ -61,7 +64,7 @@ class Experiment:
         with self.lock:
             return dict(run_id=self.run_id,cursor=self.seq,status=self.status,
                         config=dict(self.config),metrics=dict(self.metrics),handshake=self.handshake,
-                        error=self.error,resume_available=False,events=[dict(e) for e in self.events if e["id"]>after],
+                        error=self.error,resume_available=self.cache_ready,events=[dict(e) for e in self.events if e["id"]>after],
                         started=self.started,ended=self.ended,source="board" if self.run_id else None,
                         payload_origin="firmware_status_report" if self.run_id else None)
 
@@ -69,8 +72,8 @@ class Experiment:
         mode = data.get("mode","full")
         count = data.get("count",12)
         port = data.get("udp_port",4433)
-        if mode != "full":
-            raise ValueError("当前板端固件仅支持 FULL；其他模式待适配，不会自动替代。")
+        if mode not in ("full", "resume"):
+            raise ValueError("当前板端固件支持 FULL / RESUME；PSK 尚未适配。")
         if type(count) is not int or not 1<=count<=100 or type(port) is not int or not 1024<=port<=65535:
             raise ValueError("端口或条数无效")
         if data.get("peer","") not in ("","169.254.33.64"):
@@ -84,6 +87,10 @@ class Experiment:
         with self.lock:
             if self.worker and self.worker.is_alive():
                 raise RuntimeError("网关正在运行，请先停止")
+            if mode == "resume" and not self.cache_ready:
+                raise ValueError("请先完成同一终端的 FULL；恢复时不能复位开发板。")
+            if mode == "full":
+                self.cache_ready = False
             self.events.clear()
             self.metrics = {}
             self.handshake = None
@@ -97,7 +104,9 @@ class Experiment:
             env = os.environ.copy()
             if os.name == "nt":
                 env["PATH"] = str(Path(exe).parent)+os.pathsep+env.get("PATH","")
-            self.proc = subprocess.Popen([str(exe),"--events","--mode",mode,"--port",str(port),"--msgs",str(count),"--peer","169.254.33.64"],
+            session_args = ["--load-session" if mode == "resume" else "--save-session",
+                            str(Path(self.session_dir.name)/"gateway.bin")]
+            self.proc = subprocess.Popen([str(exe),"--events","--mode",mode,"--port",str(port),"--msgs",str(count),"--peer","169.254.33.64"]+session_args,
                 cwd=str(root),env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name=="nt" else 0)
             self.worker = threading.Thread(target=self.consume,daemon=True)
@@ -122,13 +131,16 @@ class Experiment:
                     self.status = "stopped"
                 elif rc == 0 and self.metrics.get("received")==self.config["count"] and self.metrics.get("acks")==self.config["count"]:
                     self.status = "complete"
+                    self.cache_ready = True
                 else:
                     self.status = "error"
+                    self.cache_ready = False
                     self.publish(dict(type="error",role="platform",text=self.error or "网关退出或接收超时，请检查终端固件及网络。",code=rc))
         except Exception as exc:
             with self.lock:
                 self.status = "error"
                 self.error = str(exc)
+                self.cache_ready = False
             if proc.poll() is None:
                 proc.terminate()
         finally:
@@ -139,6 +151,7 @@ class Experiment:
         with self.lock:
             if self.proc and self.proc.poll() is None:
                 self.cancelled = True
+                self.cache_ready = False
                 self.proc.terminate()
         if self.worker:
             self.worker.join(timeout=5)
@@ -237,6 +250,7 @@ def main():
     finally:
         EXPERIMENT.stop()
         httpd.server_close()
+        EXPERIMENT.session_dir.cleanup()
 
 
 if __name__ == "__main__":

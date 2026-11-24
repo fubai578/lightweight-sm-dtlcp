@@ -83,8 +83,8 @@ function render() {
   $('settingsButton').disabled = running;
   $('exportButton').disabled = allEvents.length === 0;
   $('sessionMode').textContent = modes[state.run_id ? state.config.mode : $('mode').value];
-  $('handshakeValue').textContent = hs ? (hs.elapsed_us/1000).toFixed(2) : '—';
-  $('handshakeDetail').textContent = hs ? `本机握手耗时 · SM2 运算 ${hs.sm2_ops} 次` : '等待一次完整握手';
+  $('handshakeValue').textContent = hs ? ((hs.active_elapsed_us ?? hs.elapsed_us)/1000).toFixed(2) : '—';
+  $('handshakeDetail').textContent = hs ? `首包至握手完成 · 网关 SM2 ${hs.sm2_ops} 次` : '等待一次完整握手';
   $('receivedValue').textContent = number(m.received);
   $('receivedDetail').textContent = m.app_bytes == null ? '网关解保护后的业务消息' : `业务载荷累计 ${number(m.app_bytes)} B`;
   $('ackValue').textContent = number(m.acks);
@@ -104,7 +104,7 @@ function render() {
   step('stepHandshake',!!hs,hs ? '收到握手完成事件' : '等待与终端建立会话');
   step('stepTelemetry',!!latest,latest ? '记录解保护成功' : '收到消息后执行解保护');
   step('stepAck',!!m.acks,m.acks ? '网关发送成功' : '等待网关发送 ACK');
-  $('sessionNote').textContent = state.error || (state.config.mode === 'early' ? '0-RTT 早期数据存在重放风险；发送成功不代表对端已收到。' : '只有网关实际观测到的事件会更新状态。');
+  $('sessionNote').textContent = state.error || ($('mode').value==='resume' ? (state.resume_available ? '恢复缓存可用；请勿复位开发板，使用恢复运行命令触发。' : '先完成 FULL；恢复依赖同一终端和网关进程的会话缓存。') : '') || (state.config.mode === 'early' ? '0-RTT 早期数据存在重放风险；发送成功不代表对端已收到。' : '只有网关实际观测到的事件会更新状态。');
   renderLiveDetails();
   renderRecords();
 }
@@ -113,7 +113,7 @@ function renderLiveDetails() {
   $('integrationStatus').textContent=state.run_id ? '真实开发板 · 网关事件' : '等待真实终端接入';
   $('detailGateway').textContent=state.status==='idle'?'未启动':running?'运行中':state.status==='complete'?'本轮完成':'已结束 / 异常';
   $('detailPeer').textContent=hs?.peer || '—';
-  $('detailSuite').textContent=hs?'FULL / L_SM2_SM4_CTR_SM3':'—';
+  $('detailSuite').textContent=hs?modes[state.config.mode]+' / L_SM2_SM4_CTR_SM3':'—';
   $('detailSessionTime').textContent=hs?timeLabel(hs.timestamp)+(state.ended?' / '+timeLabel(state.ended):' / —'):'—';
   const wires=allEvents.filter(e=>e.type==='wire');
   $('detailLastSeen').textContent=wires.length?timeLabel(wires.at(-1).timestamp):'—';

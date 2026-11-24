@@ -8,6 +8,7 @@
 
 static int events_enabled;
 static unsigned message_number;
+static uint64_t first_packet_us;
 static void event(const char *type, const uint8_t *data, size_t len, int code)
 {
     size_t j;
@@ -32,6 +33,7 @@ static int observed_send(void *user,const uint8_t *buf,size_t len)
 static int observed_recv(void *user,uint8_t *buf,size_t cap)
 {
     int n=udp_recv_cb(user,buf,cap);
+    if(n>0 && !first_packet_us) first_packet_us=udp_now_us();
     if(events_enabled && n>0) printf("@dtlcp {\"type\":\"wire\",\"role\":\"gateway\",\"direction\":\"rx\",\"bytes\":%d}\n",n);
     return n;
 }
@@ -139,7 +141,7 @@ int main(int argc, char **argv)
     }
     dtlcp_get_stats(&ctx, &st);
     print_stats("GW", mode, &st, t1-t0);
-    if(events_enabled) printf("@dtlcp {\"type\":\"handshake\",\"role\":\"gateway\",\"elapsed_us\":%llu,\"sm2_ops\":%d,\"flights\":%d,\"wire_sent\":%llu,\"wire_recv\":%llu,\"peer\":\"%s\"}\n",(unsigned long long)(t1-t0),st.sm2_ops,st.hs_flights,(unsigned long long)st.bytes_sent,(unsigned long long)st.bytes_recv,inet_ntoa(udp.peer.sin_addr));
+    if(events_enabled) printf("@dtlcp {\"type\":\"handshake\",\"role\":\"gateway\",\"elapsed_us\":%llu,\"active_elapsed_us\":%llu,\"sm2_ops\":%d,\"flights\":%d,\"wire_sent\":%llu,\"wire_recv\":%llu,\"peer\":\"%s\"}\n",(unsigned long long)(t1-t0),(unsigned long long)(first_packet_us?t1-first_packet_us:0),st.sm2_ops,st.hs_flights,(unsigned long long)st.bytes_sent,(unsigned long long)st.bytes_recv,inet_ntoa(udp.peer.sin_addr));
     if (save) {
         const dtlcp_session *s = dtlcp_get_session(&ctx);
         if (save_session(save, s) == 0)

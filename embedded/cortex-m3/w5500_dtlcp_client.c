@@ -24,6 +24,9 @@ typedef struct {
 static dtlcp_ctx g_ctx;
 static board_pki g_pki;
 volatile uint32_t w5500_dtlcp_results[10];
+/* SWD demo mailbox: 1 requests RESUME without reset; reset clears the cache. */
+volatile uint32_t w5500_dtlcp_command;
+static dtlcp_session saved_session;
 
 static void puts_uart(const char *s)
 {
@@ -95,6 +98,8 @@ int main(void)
     io.recv = w5500_udp_recv_cb;
     io.user = &net;
 
+connect_session:
+    w5500_dtlcp_results[8] = 0;
     w5500_dtlcp_results[1] = 2;
     rc = dtlcp_connect(&g_ctx, &cfg, &io, smc_port_cycles());
     w5500_dtlcp_results[3] = (uint32_t)rc;
@@ -108,6 +113,7 @@ int main(void)
         puts_uart("DTLCP_HANDSHAKE_FAIL");
         for (;;) { }
     }
+    saved_session = *dtlcp_get_session(&g_ctx);
     puts_uart("DTLCP_HANDSHAKE_OK");
 
     w5500_dtlcp_results[6] = (uint32_t)stats.sm2_ops;
@@ -130,5 +136,20 @@ int main(void)
     w5500_dtlcp_results[1] = 3;
     w5500_dtlcp_results[8] = 1;
     puts_uart("DTLCP_APP_OK");
-    for (;;) { smc_port_watchdog_feed(); }
+    for (;;) {
+        smc_port_watchdog_feed();
+        if (w5500_dtlcp_command == 1) {
+            w5500_dtlcp_command = 0;
+            if (!saved_session.valid) continue;
+            /* Clear stale UDP records (including gateway firewall priming)
+             * before creating the next record-layer context. */
+            if (w5500_udp_init(&net) != 0) {
+                w5500_dtlcp_results[1] = 0xE1u;
+                continue;
+            }
+            cfg.mode = DTLCP_MODE_RESUME;
+            cfg.resume = &saved_session;
+            goto connect_session;
+        }
+    }
 }
